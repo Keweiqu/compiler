@@ -149,6 +149,19 @@ let map_addr (addr:quad) : int option =
   else 
     Some (Int64.to_int (Int64.sub addr mem_bot))
 
+let interpret_operand_loc (operand: operand) (m: mach): int64 =
+  begin match operand with
+    | Imm (Lit x) -> x
+    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Invalid_argument "should have resolved all lables")
+    | Reg reg -> Int64.of_int (rind reg)
+    | Ind1 (Lit x) -> x
+    | Ind2 reg -> m.regs.(rind reg)
+    | Ind3 ((Lit x), reg) -> Int64.add m.regs.(rind reg) x
+  end
+
+
+
+
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
     - compute the source and/or destination information from the operands
