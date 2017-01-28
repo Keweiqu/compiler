@@ -6,6 +6,7 @@
 *)
 
 open X86
+open Int64_overflow
 
 (* simulator machine state -------------------------------------------------- *)
 
@@ -79,6 +80,10 @@ let rind : reg -> int = function
   | Rsi -> 4  | Rdi -> 5  | Rbp -> 6  | Rsp -> 7
   | R08 -> 8  | R09 -> 9  | R10 -> 10 | R11 -> 11
   | R12 -> 12 | R13 -> 13 | R14 -> 14 | R15 -> 15
+
+(* The index of a memory location in mem *)
+let mind (x: int64) : int = 
+  Int64.to_int(Int64.sub x mem_bot)
 
 (* Helper functions for reading/writing sbytes *)
 
@@ -159,7 +164,15 @@ let interpret_operand_loc (operand: operand) (m: mach): int64 =
     | Ind3 ((Lit x), reg) -> Int64.add m.regs.(rind reg) x
   end
 
-
+let interpret_operand_val (operand: operand) (m: mach): int64 = 
+  begin match operand with
+    | Imm (Lit x) -> x
+    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Invalid_argument "should have resolved all lables")
+    | Reg reg -> m.regs.(rind reg)
+    | Ind1 (Lit x) -> m.mem.(mind x)
+    | Ind2 reg -> m.mem.(mind m.regs.(rind reg))
+    | Ind3 ((Lit x), reg) -> m.mem.(mind (Int64.add m.regs.(rind reg) x))
+  end
 
 
 (* Simulates one step of the machine:
@@ -170,7 +183,33 @@ let interpret_operand_loc (operand: operand) (m: mach): int64 =
     - set the condition flags
 *)
 let step (m:mach) : unit =
-failwith "step unimplemented"
+  let sbl = sbytes_of_int64 m.regs.(rind rip) in
+    begin match sbl with
+      | [] -> raise (Failure "instruction not found")
+      | h::t -> 
+        begin match h with
+          | InsFrag | Byte c -> raise (Invalid_argument "not an instruction")
+          | InsB0 (opcode, operands) ->
+            begin match opcode with
+              | Movq | Pushq | Popq -> raise Not_found
+              | Leaq -> raise Not_found
+              | Incq | Decq | Negq | Notq -> raise Not_found
+              | Subq | Imulq | Xorq | Orq | Andq -> raise Not_found
+              | Shlq | Sarq | Shrq -> raise Not_found 
+              | Jmp | J cnd -> raise Not_found
+              | Cmpq | Set cnd -> raise Not_found
+              | Callq | Retq -> raise Not_found
+              | Addq ->
+                begin match operands with
+                  | [] | h::[] | a::b::c::t -> raise (Invalid_argument "binary operator") 
+                  | a::b::[] -> 
+                    let value, fo = Int64_overflow.add (interpret_operand_val a) (interpret_operand_val b) in
+                      let dest_idx = mind interpret_operand_loc b in
+                        m.mem.(dest_idx) <- value && m.flags.fo <- fo
+                end
+            end
+        end 
+    end
 
 (* Runs the machine until the rip register reaches a designated
    memory address. *)

@@ -10,3 +10,4 @@ all: main.native
 
 clean:
 	ocamlbuild -clean
+	rm main.native
