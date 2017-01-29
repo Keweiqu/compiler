@@ -201,7 +201,7 @@ let add = test_machine
   [InsB0 (Addq, [~$1; ~%Rax]);InsFrag;InsFrag;InsFrag
   ;InsB0 (Addq, [~%Rax; ~%Rbx]);InsFrag;InsFrag;InsFrag
   ;InsB0 (Addq, [~%Rbx; stack_offset 0L]);InsFrag;InsFrag;InsFrag
-  ]
+  ] 
 
 
 

@@ -6,7 +6,6 @@
 *)
 
 open X86
-open Int64_overflow
 
 (* simulator machine state -------------------------------------------------- *)
 
@@ -81,10 +80,6 @@ let rind : reg -> int = function
   | R08 -> 8  | R09 -> 9  | R10 -> 10 | R11 -> 11
   | R12 -> 12 | R13 -> 13 | R14 -> 14 | R15 -> 15
 
-(* The index of a memory location in mem *)
-let mind (x: int64) : int = 
-  Int64.to_int(Int64.sub x mem_bot)
-
 (* Helper functions for reading/writing sbytes *)
 
 (* Convert an int64 to its sbyte representation *)
@@ -154,26 +149,92 @@ let map_addr (addr:quad) : int option =
   else 
     Some (Int64.to_int (Int64.sub addr mem_bot))
 
-let interpret_operand_loc (operand: operand) (m: mach): int64 =
-  begin match operand with
-    | Imm (Lit x) -> x
-    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Invalid_argument "should have resolved all lables")
-    | Reg reg -> Int64.of_int (rind reg)
-    | Ind1 (Lit x) -> x
-    | Ind2 reg -> m.regs.(rind reg)
-    | Ind3 ((Lit x), reg) -> Int64.add m.regs.(rind reg) x
-  end
+(* Loads a int64 from memory location start from start_loc to start_loc+8 *)
+let load_val_from_mem (start_loc:int64) (m:mach): int64 =
+  let mem_idx = map_addr start_loc in
+    begin match mem_idx with
+      | None -> raise X86lite_segfault
+      | Some i -> int64_of_sbytes (Array.to_list (Array.sub m.mem i 8))
+    end
 
+(* Interprets value specified by the operand *)
 let interpret_operand_val (operand: operand) (m: mach): int64 = 
   begin match operand with
     | Imm (Lit x) -> x
     | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Invalid_argument "should have resolved all lables")
     | Reg reg -> m.regs.(rind reg)
-    | Ind1 (Lit x) -> m.mem.(mind x)
-    | Ind2 reg -> m.mem.(mind m.regs.(rind reg))
-    | Ind3 ((Lit x), reg) -> m.mem.(mind (Int64.add m.regs.(rind reg) x))
+    | Ind1 (Lit x) -> x
+    | Ind2 reg -> m.regs.(rind reg)
+    | Ind3 ((Lit x), reg) -> load_val_from_mem (Int64.add m.regs.(rind reg) x) m
   end
 
+(* Writes an int64 to memory from  mem_loc to mem_loc + 8 *)
+let write_to_mem (mem_loc:int64) (v:int64) (m:mach): unit = 
+  let mem_idx = map_addr mem_loc in
+    begin match mem_idx with
+      | None -> raise X86lite_segfault
+      | Some i -> 
+        let sbyte_list = sbytes_of_int64 v in
+          Array.blit (Array.of_list sbyte_list) 0 m.mem i (List.length sbyte_list)
+    end
+
+(* Updates destination specified by dest with value v *)
+let update_dest (v:int64) (dest:operand) (m:mach) : unit = 
+  begin match dest with
+    | Imm _ | Ind1 (Lbl _) | Ind3((Lbl _), _) -> raise (Invalid_argument "dest should be a memory location not value")
+    | Reg reg -> m.regs.(rind reg) <- v
+    | Ind1 (Lit x) -> write_to_mem x v m
+    | Ind2 reg -> 
+      let mem_loc = m.regs.(rind reg) in write_to_mem mem_loc v m
+    | Ind3 ((Lit x), reg) ->
+      let mem_loc = Int64.add m.regs.(rind reg) x in write_to_mem mem_loc v m
+  end 
+
+(* Fetches the instruction in memory location stored in Rip *)
+let fetch_ins (m:mach) : sbyte =
+  let mem_idx = map_addr m.regs.(rind Rip) in
+    begin match mem_idx with
+      | None -> raise X86lite_segfault
+      | Some i -> m.mem.(i)
+    end
+  
+(* *)
+let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  let open Int64_overflow in
+  begin match operands with
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "binary operator") 
+    | a::b::[] -> 
+      let {value =v; overflow = fo} =
+        begin match op with
+          | Addq -> add (interpret_operand_val a m) (interpret_operand_val b m)
+          | Imulq -> mul (interpret_operand_val a m) (interpret_operand_val b m)
+          | Subq -> sub (interpret_operand_val b m) (interpret_operand_val a m)
+          | _ -> raise (Failure "Not valid binary operation")
+        end
+      in 
+        update_dest v b m;
+        m.flags.fo <- fo;
+        m.flags.fz <-
+          if v = Int64.zero then
+            true
+          else
+            false;
+        m.flags.fs <-
+          if Int64.shift_right_logical v 63 = 1L then
+            true
+          else
+            false;
+        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+   end
+
+let move_step (operands: operand list) (m:mach) : unit = 
+  begin match operands with
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "binary operator") 
+    | a::b::[] -> 
+      let v = interpret_operand_val a m in update_dest v b m
+  end;
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+    
 
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
@@ -183,33 +244,29 @@ let interpret_operand_val (operand: operand) (m: mach): int64 =
     - set the condition flags
 *)
 let step (m:mach) : unit =
-  let sbl = sbytes_of_int64 m.regs.(rind rip) in
-    begin match sbl with
-      | [] -> raise (Failure "instruction not found")
-      | h::t -> 
-        begin match h with
-          | InsFrag | Byte c -> raise (Invalid_argument "not an instruction")
-          | InsB0 (opcode, operands) ->
-            begin match opcode with
-              | Movq | Pushq | Popq -> raise Not_found
-              | Leaq -> raise Not_found
-              | Incq | Decq | Negq | Notq -> raise Not_found
-              | Subq | Imulq | Xorq | Orq | Andq -> raise Not_found
-              | Shlq | Sarq | Shrq -> raise Not_found 
-              | Jmp | J cnd -> raise Not_found
-              | Cmpq | Set cnd -> raise Not_found
-              | Callq | Retq -> raise Not_found
-              | Addq ->
-                begin match operands with
-                  | [] | h::[] | a::b::c::t -> raise (Invalid_argument "binary operator") 
-                  | a::b::[] -> 
-                    let value, fo = Int64_overflow.add (interpret_operand_val a) (interpret_operand_val b) in
-                      let dest_idx = mind interpret_operand_loc b in
-                        m.mem.(dest_idx) <- value && m.flags.fo <- fo
-                end
-            end
-        end 
-    end
+  let open Int64_overflow in 
+    let insn = fetch_ins m in
+      begin match insn with
+        | InsFrag -> raise (Invalid_argument " insfrag not an instruction")
+        | Byte _ -> raise (Invalid_argument " byte not an instruction")
+        | InsB0 (opcode, operands) ->
+          begin match opcode with
+            | Movq -> move_step operands m
+            | Pushq | Popq -> raise Not_found
+            | Leaq -> raise Not_found
+            | Incq | Decq | Negq | Notq -> raise Not_found
+            | Xorq | Orq | Andq -> raise Not_found
+            | Shlq | Sarq | Shrq -> raise Not_found 
+            | Jmp | J _ -> raise Not_found
+            | Cmpq | Set _ -> raise Not_found
+            | Callq | Retq -> raise Not_found
+            | Addq | Subq | Imulq -> binary_op_step opcode operands m 
+          end
+      end 
+
+
+
+
 
 (* Runs the machine until the rip register reaches a designated
    memory address. *)

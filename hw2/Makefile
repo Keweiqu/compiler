@@ -1,4 +1,4 @@
-DIRS=util,x86
+DIRS=util,x86,Int64_overflow
 
 main.native:
 	ocamlbuild -Is $(DIRS) main.native
