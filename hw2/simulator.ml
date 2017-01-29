@@ -264,6 +264,62 @@ let lea_step (operands: operand list) (m:mach) : unit =
       end
   end
 
+
+let jmp_step (operands:operand list) (m:mach) : unit = 
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "jmp is a unary operator")
+    | a::[] -> update_dest (interpret_operand_val a m) (Reg Rip) m
+  end
+
+let j_cc_step (cc:cnd) (operands:operand list) (m:mach) : unit = 
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "j cc is a unary operator")
+    | a::[] -> 
+      if (interp_cnd m.flags cc) then
+        jmp_step operands m
+      else
+        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+  end
+
+
+let call_step (operands: operand list) (m:mach) : unit =
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "jmp is a unary operator")
+    | a::[] -> 
+      push_pop_step Pushq [Reg Rip] m;
+      m.regs.(rind Rip) <- interpret_operand_val a m
+  end
+
+
+let cmp_step (operands: operand list) (m:mach) : unit = 
+  begin match operands with 
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "cmp is a binary operator")
+    | a::b::[] -> 
+      let origin = interpret_operand_val b m in
+        binary_op_step Subq operands m;
+        update_dest origin b m
+  end
+
+let set_step (cc:cnd) (operands: operand list) (m:mach) : unit = 
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "set is a unary operator")
+    | a::[] ->
+      let v = 
+        if interp_cnd m.flags cc then
+          Int64.logor (interpret_operand_val a m) 1L
+        else
+          Int64.logor (interpret_operand_val a m) 0L
+        in update_dest v a m
+  end
+
+
+let ret_step (operands:operand list) (m:mach) : unit = 
+  begin match operands with 
+    | [] -> push_pop_step Popq [Reg Rip] m
+    | _ -> raise (Invalid_argument "ret does not accept operands")
+  end
+
+
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
     - compute the source and/or destination information from the operands
@@ -285,9 +341,12 @@ let step (m:mach) : unit =
             | Incq | Decq | Negq | Notq -> raise Not_found
             | Xorq | Orq | Andq -> raise Not_found
             | Shlq | Sarq | Shrq -> raise Not_found 
-            | Jmp | J _ -> raise Not_found
-            | Cmpq | Set _ -> raise Not_found
-            | Callq | Retq -> raise Not_found
+            | Jmp -> jmp_step operands m
+            | J cnd -> j_cc_step cnd operands m
+            | Cmpq -> cmp_step operands m
+            | Set cnd -> set_step cnd operands m
+            | Callq -> call_step operands m 
+            | Retq -> ret_step operands m
             | Addq | Subq | Imulq -> binary_op_step opcode operands m 
           end
       end 
