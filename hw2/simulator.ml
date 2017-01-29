@@ -234,7 +234,35 @@ let move_step (operands: operand list) (m:mach) : unit =
       let v = interpret_operand_val a m in update_dest v b m
   end;
   m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
-    
+
+let push_pop_step (op:opcode) (operands: operand list) (m:mach) : unit =
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "unary operator")
+    | a::[] -> 
+      begin match op with
+        | Pushq -> 
+          m.regs.(rind Rsp) <- Int64.sub m.regs.(rind Rsp) 8L;
+          write_to_mem m.regs.(rind Rsp) (interpret_operand_val a m) m
+        | Popq ->
+          let v = load_val_from_mem m.regs.(rind Rsp) m in
+            update_dest v a m;
+            m.regs.(rind Rsp) <- Int64.add m.regs.(rind Rsp) 8L
+        | _ -> raise (Failure "Not push or pop operator")
+      end
+  end    
+
+let lea_step (operands: operand list) (m:mach) : unit = 
+  begin match operands with 
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "leaq is a binary operator")
+    | a::b::[] ->
+      begin match a with
+        | Imm _ | Reg _ -> raise (Failure "leaq must take an Ind operand")
+        | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Failure "Should have resolved all labels")
+        | Ind1 (Lit x) -> update_dest x b m
+        | Ind2 reg -> update_dest (m.regs.(rind reg)) b m
+        | Ind3 ((Lit x), reg) -> update_dest (Int64.add (m.regs.(rind reg)) x) b m
+      end
+  end
 
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
@@ -252,8 +280,8 @@ let step (m:mach) : unit =
         | InsB0 (opcode, operands) ->
           begin match opcode with
             | Movq -> move_step operands m
-            | Pushq | Popq -> raise Not_found
-            | Leaq -> raise Not_found
+            | Pushq | Popq -> push_pop_step opcode operands m
+            | Leaq -> lea_step operands m
             | Incq | Decq | Negq | Notq -> raise Not_found
             | Xorq | Orq | Andq -> raise Not_found
             | Shlq | Sarq | Shrq -> raise Not_found 
