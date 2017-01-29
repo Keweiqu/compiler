@@ -299,7 +299,48 @@ let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
-
+let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  begin match operands with
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "bitwise binary operator") 
+    | a::b::[] -> 
+      let amt = 
+        begin match a with
+          | Imm (Lit x) -> x
+          | Reg Rcx -> m.regs.(rind Rcx)
+          | _ -> raise (Invalid_argument "bitwise operation only takes Imm or rcx as AMT")
+        end 
+      in 
+        let v = 
+          begin match op with
+            | Shlq -> Int64.shift_left (interpret_operand_val b m) (Int64.to_int amt)
+            | Sarq -> Int64.shift_right (interpret_operand_val b m) (Int64.to_int amt)
+            | Shrq -> Int64.shift_right_logical (interpret_operand_val b m) (Int64.to_int amt)
+            | _ -> raise (Failure "Not a valid bitwise binary operation")
+          end
+        in
+          update_dest v b m;
+            if (Int64.to_int (interpret_operand_val a m)) <> 0 then
+              begin match op with
+                | Sarq ->
+                  if amt = 1L then
+                    m.flags.fo <- false
+                | Shrq | Shlq ->
+                  if amt = 1L && ((Int64.shift_right_logical v 63) != (Int64.logand (Int64.shift_right_logical v 62) 1L)) then
+                    m.flags.fo <- true
+                | _ -> raise (Failure "Not a valid bitwise binary operation")
+              end;
+              m.flags.fz <-
+                if v = Int64.zero then
+                  true
+                else
+                 false;
+              m.flags.fs <-
+                if Int64.shift_right_logical v 63 = 1L then
+                  true
+                else
+                  false;
+          m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L        
+  end
 
 let move_step (operands: operand list) (m:mach) : unit = 
   begin match operands with
@@ -308,7 +349,35 @@ let move_step (operands: operand list) (m:mach) : unit =
       let v = interpret_operand_val a m in update_dest v b m
   end;
   m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
-    
+
+let push_pop_step (op:opcode) (operands: operand list) (m:mach) : unit =
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "unary operator")
+    | a::[] -> 
+      begin match op with
+        | Pushq -> 
+          m.regs.(rind Rsp) <- Int64.sub m.regs.(rind Rsp) 8L;
+          write_to_mem m.regs.(rind Rsp) (interpret_operand_val a m) m
+        | Popq ->
+          let v = load_val_from_mem m.regs.(rind Rsp) m in
+            update_dest v a m;
+            m.regs.(rind Rsp) <- Int64.add m.regs.(rind Rsp) 8L
+        | _ -> raise (Failure "Not push or pop operator")
+      end
+  end    
+
+let lea_step (operands: operand list) (m:mach) : unit = 
+  begin match operands with 
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "leaq is a binary operator")
+    | a::b::[] ->
+      begin match a with
+        | Imm _ | Reg _ -> raise (Failure "leaq must take an Ind operand")
+        | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Failure "Should have resolved all labels")
+        | Ind1 (Lit x) -> update_dest x b m
+        | Ind2 reg -> update_dest (m.regs.(rind reg)) b m
+        | Ind3 ((Lit x), reg) -> update_dest (Int64.add (m.regs.(rind reg)) x) b m
+      end
+  end
 
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
@@ -325,10 +394,9 @@ let step (m:mach) : unit =
         | Byte _ -> raise (Invalid_argument " byte not an instruction")
         | InsB0 (opcode, operands) ->
           begin match opcode with
-            | Movq -> move_step operands m
-            | Pushq | Popq -> raise Not_found
-            | Leaq -> raise Not_found
-            | Shlq | Sarq | Shrq -> raise Not_found 
+            | Movq -> move_step operands m 
+            | Pushq | Popq -> push_pop_step opcode operands m
+            | Leaq -> lea_step operands m
             | Jmp | J _ -> raise Not_found
             | Cmpq | Set _ -> raise Not_found
             | Callq | Retq -> raise Not_found
@@ -336,6 +404,7 @@ let step (m:mach) : unit =
             | Incq | Decq | Negq -> unary_op_step opcode operands m
             | Xorq | Orq | Andq -> binary_log_step opcode operands m
             | Notq -> unary_log_step opcode operands m
+            | Shlq | Sarq | Shrq -> bit_op_step opcode operands m
           end
       end 
 

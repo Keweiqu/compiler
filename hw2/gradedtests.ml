@@ -311,7 +311,7 @@ let instruction_tests = [
 
   ("shl", machine_test "rax=4 *65528=16" 5 shl
     (fun m -> m.regs.(rind Rax) = 4L
-           && int64_of_sbytes (sbyte_list m.mem (mem_size-8)) = 16L
+            && int64_of_sbytes (sbyte_list m.mem (mem_size-8)) = 16L
     )
   );
 
