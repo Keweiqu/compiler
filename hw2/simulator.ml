@@ -198,7 +198,7 @@ let fetch_ins (m:mach) : sbyte =
       | Some i -> m.mem.(i)
     end
   
-(* *)
+(* Finishes arithmetic step with two operands *)
 let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
   let open Int64_overflow in
   begin match operands with
@@ -227,6 +227,80 @@ let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
+(* Finishes arithmetic step with one operand *)
+let unary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  let open Int64_overflow in
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "unary operator") 
+    | a::[] -> 
+      let {value =v; overflow = fo} =
+        begin match op with
+          | Incq -> succ (interpret_operand_val a m)
+          | Decq -> pred (interpret_operand_val a m)
+          | Negq -> neg (interpret_operand_val a m)
+          | _ -> raise (Failure "Not valid unary operation")
+        end
+      in 
+        update_dest v a m;
+        m.flags.fo <- fo;
+        m.flags.fz <-
+          if v = Int64.zero then
+            true
+          else
+            false;
+        m.flags.fs <-
+          if Int64.shift_right_logical v 63 = 1L then
+            true
+          else
+            false;
+        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+  end
+
+let binary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  begin match operands with
+    | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "logical binary operator") 
+    | a::b::[] -> 
+      let v =
+        begin match op with
+          | Xorq -> Int64.logxor (interpret_operand_val b m) (interpret_operand_val a m)
+          | Orq -> Int64.logor (interpret_operand_val b m) (interpret_operand_val a m)
+          | Andq -> Int64.logand (interpret_operand_val b m) (interpret_operand_val a m)
+          | _ -> raise (Failure "Not valid logical binary operation")
+        end
+      in 
+        update_dest v b m;
+        m.flags.fo <- false;
+        m.flags.fz <-
+          if v = Int64.zero then
+            true
+          else
+            false;
+        m.flags.fs <-
+          if Int64.shift_right_logical v 63 = 1L then
+            true
+          else
+            false;
+        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+   end
+
+
+
+let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  begin match operands with
+    | [] | _::_::_ -> raise (Invalid_argument "logical unary operator") 
+    | a::[] -> 
+      let v =
+        begin match op with
+          | Notq -> Int64.lognot (interpret_operand_val a m)
+          | _ -> raise (Failure "Not valid logical unary operation")
+        end
+      in 
+        update_dest v a m;
+        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+   end
+
+
+
 let move_step (operands: operand list) (m:mach) : unit = 
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "binary operator") 
@@ -254,13 +328,14 @@ let step (m:mach) : unit =
             | Movq -> move_step operands m
             | Pushq | Popq -> raise Not_found
             | Leaq -> raise Not_found
-            | Incq | Decq | Negq | Notq -> raise Not_found
-            | Xorq | Orq | Andq -> raise Not_found
             | Shlq | Sarq | Shrq -> raise Not_found 
             | Jmp | J _ -> raise Not_found
             | Cmpq | Set _ -> raise Not_found
             | Callq | Retq -> raise Not_found
             | Addq | Subq | Imulq -> binary_op_step opcode operands m 
+            | Incq | Decq | Negq -> unary_op_step opcode operands m
+            | Xorq | Orq | Andq -> binary_log_step opcode operands m
+            | Notq -> unary_log_step opcode operands m
           end
       end 
 
