@@ -174,6 +174,57 @@ let program_test (p:prog) (ans:int64) () =
 
 (* Tests *)
 
+
+let callq = test_machine [InsB0 (Callq, [Imm (Lit 0x400009L)]); InsFrag; InsFrag; InsFrag]
+
+let subq = test_machine [InsB0 (Subq, [Imm (Lit 0x00000AL); Reg Rax]); InsFrag; InsFrag; InsFrag]
+
+let jle1 = test_machine [InsB0 (Movq, [Imm (Lit 0x00000AL); Reg Rdi]); InsFrag; InsFrag; InsFrag;
+                         InsB0 (Cmpq, [Imm (Lit 0x00000BL); Reg Rdi]); InsFrag; InsFrag; InsFrag;
+                         InsB0 (J Le, [Imm (Lit Int64.zero)]); InsFrag; InsFrag; InsFrag]
+
+let jle2 = test_machine [InsB0 (Movq, [Imm (Lit 0x00000AL); Reg Rdi]); InsFrag; InsFrag; InsFrag;
+                         InsB0 (Cmpq, [Imm (Lit 0x000009L); Reg Rdi]); InsFrag; InsFrag; InsFrag;
+                         InsB0 (J Le, [Imm (Lit Int64.zero)]); InsFrag; InsFrag; InsFrag]
+
+let retq = test_machine [InsB0 (Callq, [Imm (Lit 0x400004L)]); InsFrag; InsFrag; InsFrag;
+                         InsB0 (Retq, []); InsFrag; InsFrag; InsFrag]
+                               
+let fun_tests =
+  [("callq", machine_test "rip = 0x400009, *65522 = 0x400004" 1 callq
+                          (fun m ->
+                            m.regs.(rind Rip) = 0x400009L
+                            && int64_of_sbytes (sbyte_list m.mem (mem_size-16)) = 0x400004L));
+  ("subq", machine_test "rcx = -1" 1 subq
+                          (fun m ->
+                            m.regs.(rind Rax) = (Int64.of_int (-10))));
+  ("jle-jump", machine_test "rip = 0" 3 jle1
+                          (fun m ->
+                            m.regs.(rind Rip) = Int64.zero));
+  ("jle-no jump", machine_test "rip = 0x40000C" 3 jle2
+                               (fun m ->
+                                 m.regs.(rind Rip) = 0x40000CL));
+  ("retq", machine_test "rip = 0x400004L, rsp = 0x40FFF8" 2 retq
+                               (fun m ->
+                                 m.regs.(rind Rip) = 0x400004L &&
+                                   m.regs.(rind Rsp) = 0x40FFF8L))]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 let map_addr_tests = [
     ("map_addr1", assert_eqf (fun () -> (map_addr 0x40FFF8L)) (Some 65528));
     ("map_addr2", assert_eqf (fun () -> (map_addr 0x4000FFL)) (Some 255));
@@ -491,6 +542,7 @@ let medium_tests : suite = [
   GradedTest("Functionality Tests", 5, functionality_tests);
   GradedTest("Instruction Tests", 10, instruction_tests);
   GradedTest("Condition Flag Set Tests", 5, condition_flag_set_tests);
+  GradedTest("Additional Tests", 5, fun_tests);
 ]
 
 let hard_tests : suite = [
