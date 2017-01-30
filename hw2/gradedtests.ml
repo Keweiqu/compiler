@@ -191,10 +191,10 @@ let retq = test_machine [InsB0 (Callq, [Imm (Lit 0x400004L)]); InsFrag; InsFrag;
                          InsB0 (Retq, []); InsFrag; InsFrag; InsFrag]
                                
 let fun_tests =
-  [("callq", machine_test "rip = 0x400009, *65522 = 0x400004" 1 callq
+  [("callq", machine_test "rip = 0x400009, *65520 = 0x400000" 1 callq
                           (fun m ->
                             m.regs.(rind Rip) = 0x400009L
-                            && int64_of_sbytes (sbyte_list m.mem (mem_size-16)) = 0x400004L));
+                            && int64_of_sbytes (sbyte_list m.mem (mem_size-16)) = 0x400000L));
   ("subq", machine_test "rcx = -1" 1 subq
                           (fun m ->
                             m.regs.(rind Rax) = (Int64.of_int (-10))));
@@ -204,9 +204,9 @@ let fun_tests =
   ("jle-no jump", machine_test "rip = 0x40000C" 3 jle2
                                (fun m ->
                                  m.regs.(rind Rip) = 0x40000CL));
-  ("retq", machine_test "rip = 0x400004L, rsp = 0x40FFF8" 2 retq
+  ("retq", machine_test "rip = 0x400000L, rsp = 0x40FFF8" 2 retq
                                (fun m ->
-                                 m.regs.(rind Rip) = 0x400004L &&
+                                 m.regs.(rind Rip) = 0x400000L &&
                                    m.regs.(rind Rsp) = 0x40FFF8L))]
 
 
