@@ -506,8 +506,55 @@ exception Redefined_sym of lbl
 
   HINT: List.fold_left and List.fold_right are your friends.
  *)
+
+(* Separate text and data segments *)
+let separate (p:prog) (acc:(elem list * elem list)): (elem list * elem list) =
+  let assign (acc:(elem list * elem list)) (e:elem): (elem list * elem list) =
+    begin match e.asm with
+     | Text _ -> ((fst acc) @ [e], snd acc)
+     | Data _ -> (fst acc, (snd acc) @ [e])
+    end
+  in
+    List.fold_left assign acc p
+
+let compute_size_of_data_elem (e:elem) : int64 =
+  let size (acc:int64) (d:data) : int64 =
+    begin match d with
+      | Asciz s -> Int64.add (Int64.add (Int64.of_int (String.length s)) 1L) acc
+      | Quad _ -> Int64.add 8L acc
+    end
+  in
+  begin match e.asm with
+   | Text _ -> raise (Invalid_argument "text element")
+   | Data ds -> 
+     begin match ds with
+       | [] -> 0L 
+       | a -> List.fold_left size 0L ds 
+     end
+  end
+
+type label_helper = (int64 * ((string * int64) list))
+
+let resolve_labels (segments:(elem list * elem list)) : (string * int64) list = 
+  let all_segments = (fst segments) @ (snd segments) in 
+  let compute_mem ((curr, symbol_table):label_helper) (e:elem) : label_helper =
+    let incr =
+      begin match e.asm with
+        | Text _ -> 4L 
+        | Data _ -> compute_size_of_data_elem e
+      end 
+     in
+       (Int64.add curr incr, (e.lbl, curr)::symbol_table) 
+   in
+     let (mem, symbol_table) = 
+       List.fold_left compute_mem (mem_bot, []) all_segments in 
+         symbol_table
+     
+   
 let assemble (p:prog) : exec =
-failwith "assemble unimplemented"
+failwith "load unimplemented"
+
+
 
 (* Convert an object file into an executable machine state. 
     - allocate the mem array
