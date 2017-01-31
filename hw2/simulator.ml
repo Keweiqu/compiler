@@ -565,13 +565,13 @@ let resolve_labels (segments:(elem list * elem list)) : (string * int64) list =
        List.fold_left compute_mem (mem_bot, []) all_segments in 
          symbol_table
      
-let find_main_addr (sym_table: (string * int64) list): int64 = 
+(* let find_main_addr (sym_table: (string * int64) list): int64 = 
   let helper (acc: int64) (symbol: (string * int64)) : int64 =
     if String.equal (fst symbol) "main" then
        snd symbol
     else
        0L
-  in List.fold_left helper 0L sym_table
+  in List.fold_left helper 0L sym_table *)
 
 let text_seg_to_sbytes (text_inss: ins list) : sbyte list = 
   let serialize (text_sb: sbyte list) (ins:ins): sbyte list =
@@ -620,17 +620,40 @@ let replace_elem_list (el:elem list) (sym_tbl: (string * int64) list) : elem lis
 let replace_prog (segs: (elem list * elem list)) (sym_tbl: (string * int64) list) : (elem list * elem list) =
   (replace_elem_list (fst segs) sym_tbl, replace_elem_list (snd segs) sym_tbl) 
   
+let serialize_ins (inss: ins list): sbyte list =
+  let helper (acc:sbyte list) (ins:ins) : sbyte list =
+    acc @ (sbytes_of_ins ins) in 
+  List.fold_left helper [] inss
+
+let serialize_dt (ds: data list) : sbyte list =
+  let helper (acc:sbyte list) (dt:data) : sbyte list =
+    acc @ (sbytes_of_data dt) in
+  List.fold_left helper [] ds
+
+let serialize_segs (seg: elem list) : sbyte list = 
+  let helper (acc:sbyte list) (e:elem) : sbyte list = 
+    begin match e.asm with
+      | Data d -> acc @ (serialize_dt d)
+      | Text t -> acc @ (serialize_ins t)
+    end in
+  List.fold_left helper [] seg
+
+
 
 let assemble (p:prog) : exec =
-failwith "unimplemented"
-(*
   let seg_tuple = separate p ([],[]) in
-  let symbol_table = resolve_labels seg_tuple in
-  let entry = find_main_addr symbol_table in
-    if entry = 0L then
-      raise (Undefined_sym "main")
-    else 
-*)     
+  let symbol_table = resolve_labels seg_tuple in 
+  let entry = lookup "main" symbol_table in
+  let new_seg_tuple = replace_prog seg_tuple symbol_table in
+  let text_sbytes = serialize_segs (fst new_seg_tuple) in
+  let data_sbytes = serialize_segs (snd new_seg_tuple) in
+  let data_pos = Int64.add mem_bot (Int64.of_int (List.length text_sbytes)) in
+    { entry = entry;
+      text_pos = mem_bot;
+      data_pos = data_pos;
+      text_seg = text_sbytes;
+      data_seg = data_sbytes
+    }  
 
 
 
