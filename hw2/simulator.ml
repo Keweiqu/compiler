@@ -6,7 +6,7 @@
 *)
 
 open X86
-
+open Asm
 (* simulator machine state -------------------------------------------------- *)
 
 let mem_bot = 0x400000L          (* lowest valid address *)
@@ -540,7 +540,7 @@ let resolve_labels (segments:(elem list * elem list)) : (string * int64) list =
   let compute_mem ((curr, symbol_table):label_helper) (e:elem) : label_helper =
     let incr =
       begin match e.asm with
-        | Text _ -> 4L 
+        | Text a -> Int64.mul (Int64.of_int (List.length a)) 4L 
         | Data _ -> compute_size_of_data_elem e
       end 
      in
@@ -550,9 +550,61 @@ let resolve_labels (segments:(elem list * elem list)) : (string * int64) list =
        List.fold_left compute_mem (mem_bot, []) all_segments in 
          symbol_table
      
-   
+let find_main_addr (sym_table: (string * int64) list): int64 = 
+  let helper (acc: int64) (symbol: (string * int64)) : int64 =
+    if String.equal (fst symbol) "main" then
+       snd symbol
+    else
+       0L
+  in List.fold_left helper 0L sym_table
+
+let text_seg_to_sbytes (text_inss: ins list) : sbyte list = 
+  let serialize (text_sb: sbyte list) (ins:ins): sbyte list =
+    text_sb @ (sbytes_of_ins ins) in
+    List.fold_left serialize [] text_inss
+
+let rec lookup (x:string) (c:(string * int64) list) : int64 =
+  begin match c with
+    | [] -> raise (Undefined_sym x)
+    | (h::tl) ->
+      if (fst h) = x then 
+        snd h
+      else 
+        lookup x tl
+  end
+
+let replace_operands (operands: operand list) (sym_tbl: (string * int64) list) : operand list =
+  let resolve_lbl (operands: operand list) (operand:operand) : operand list =
+    begin match operand with
+      | Imm (Lbl l) -> operands @ [Imm (Lit (lookup l sym_tbl))]
+      | Ind1 (Lbl l) -> operands @ [Ind1 (Lit (lookup l sym_tbl))]
+      | Ind3 ((Lbl l), reg) -> operands @ [Ind3 (Lit (lookup l sym_tbl), reg)] 
+      | _ -> operands @ [operand]
+    end in
+  List.fold_left resolve_lbl [] operands
+
+let replace_ins (inss:ins list) (sym_tbl: (string * int64) list) : ins list = 
+  let helper (acc: ins list) (ins:ins) : ins list = 
+    let (opcode, operands) = ins in
+      acc @ [(opcode, replace_operands operands sym_tbl)] in
+  List.fold_left helper [] inss
+ 
+(*
+let replace_lbls (segs: (elem list * elem list)) (sym_tbl: (string * int64) list) : (elem list * elem list) =
+  let replace_helper (seg: elem list) : elem list = 
+*)    
+  
+
 let assemble (p:prog) : exec =
-failwith "load unimplemented"
+failwith "unimplemented"
+(*
+  let seg_tuple = separate p ([],[]) in
+  let symbol_table = resolve_labels seg_tuple in
+  let entry = find_main_addr symbol_table in
+    if entry = 0L then
+      raise (Undefined_sym "main")
+    else 
+*)     
 
 
 
