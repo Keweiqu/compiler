@@ -595,11 +595,30 @@ let replace_ins (inss:ins list) (sym_tbl: (string * int64) list) : ins list =
     let (opcode, operands) = ins in
       acc @ [(opcode, replace_operands operands sym_tbl)] in
   List.fold_left helper [] inss
+
+let replace_data (ds: data list) (sym_tbl: (string * int64) list): data list =
+  let helper (acc: data list) (data: data) : data list = 
+    begin match data with 
+      | Asciz _ | Quad (Lit _) -> acc @ [data]
+      | Quad (Lbl l) -> acc @ [Quad (Lit (lookup l sym_tbl))]
+    end in
+  List.fold_left helper [] ds
  
-(*
-let replace_lbls (segs: (elem list * elem list)) (sym_tbl: (string * int64) list) : (elem list * elem list) =
-  let replace_helper (seg: elem list) : elem list = 
-*)    
+let replace_elem_list (el:elem list) (sym_tbl: (string * int64) list) : elem list =
+  let helper (acc: elem list) (e:elem) : elem list = 
+    begin match e.asm with
+      | Data ds -> 
+        let new_ele = {e with asm = Data (replace_data ds sym_tbl)} in
+          acc @ [new_ele]
+      | Text ts ->
+        let new_ele = {e with asm = Text (replace_ins ts sym_tbl)} in
+          acc @ [new_ele]
+    end in
+  List.fold_left helper [] el
+
+
+let replace_prog (segs: (elem list * elem list)) (sym_tbl: (string * int64) list) : (elem list * elem list) =
+  (replace_elem_list (fst segs) sym_tbl, replace_elem_list (snd segs) sym_tbl) 
   
 
 let assemble (p:prog) : exec =
