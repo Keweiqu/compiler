@@ -6,7 +6,6 @@
 *)
 
 open X86
-open Asm
 (* simulator machine state -------------------------------------------------- *)
 
 let mem_bot = 0x400000L          (* lowest valid address *)
@@ -671,4 +670,14 @@ let assemble (p:prog) : exec =
   may be of use.
 *)
 let load {entry; text_pos; data_pos; text_seg; data_seg} : mach = 
-failwith "load unimplemented"
+  let mem = (Array.make mem_size (Byte '\x00')) in
+  Array.blit (Array.of_list text_seg) 0 mem 0 (List.length text_seg);
+  Array.blit (Array.of_list data_seg) 0 mem (Int64.to_int (Int64.sub data_pos mem_bot)) (List.length data_seg);
+  Array.blit (Array.of_list (sbytes_of_int64 exit_addr)) 0 mem (mem_size - 8) 8;
+  let regs = Array.make nregs 0L in
+  regs.(rind Rip) <- entry;
+  regs.(rind Rsp) <- Int64.sub mem_top 8L;
+  { flags = {fo = false; fs = false; fz = false};
+    regs = regs;
+    mem = mem
+  }
