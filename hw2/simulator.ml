@@ -507,6 +507,16 @@ exception Redefined_sym of lbl
   HINT: List.fold_left and List.fold_right are your friends.
  *)
 
+let rec lookup (x:string) (c:(string * int64) list) : int64 =
+  begin match c with
+    | [] -> raise (Undefined_sym x)
+    | (h::tl) ->
+      if (fst h) = x then 
+        snd h
+      else 
+        lookup x tl
+  end
+
 (* Separate text and data segments *)
 let separate (p:prog) (acc:(elem list * elem list)): (elem list * elem list) =
   let assign (acc:(elem list * elem list)) (e:elem): (elem list * elem list) =
@@ -544,7 +554,12 @@ let resolve_labels (segments:(elem list * elem list)) : (string * int64) list =
         | Data _ -> compute_size_of_data_elem e
       end 
      in
-       (Int64.add curr incr, (e.lbl, curr)::symbol_table) 
+       try 
+         let _ = lookup e.lbl symbol_table in 
+           raise (Redefined_sym e.lbl)
+       with 
+         Undefined_sym _ -> (Int64.add curr incr, (e.lbl, curr)::symbol_table) 
+
    in
      let (mem, symbol_table) = 
        List.fold_left compute_mem (mem_bot, []) all_segments in 
@@ -563,15 +578,7 @@ let text_seg_to_sbytes (text_inss: ins list) : sbyte list =
     text_sb @ (sbytes_of_ins ins) in
     List.fold_left serialize [] text_inss
 
-let rec lookup (x:string) (c:(string * int64) list) : int64 =
-  begin match c with
-    | [] -> raise (Undefined_sym x)
-    | (h::tl) ->
-      if (fst h) = x then 
-        snd h
-      else 
-        lookup x tl
-  end
+
 
 let replace_operands (operands: operand list) (sym_tbl: (string * int64) list) : operand list =
   let resolve_lbl (operands: operand list) (operand:operand) : operand list =
