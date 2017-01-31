@@ -400,6 +400,7 @@ let call_step (operands: operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "jmp is a unary operator")
     | a::[] -> 
+      m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
       push_pop_step Pushq [Reg Rip] m;
       m.regs.(rind Rip) <- interpret_operand_val a m
   end
