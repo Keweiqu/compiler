@@ -152,26 +152,37 @@ let map_addr (addr:quad) : int option =
 let load_val_from_mem (start_loc:int64) (m:mach): int64 =
   let mem_idx = map_addr start_loc in
     begin match mem_idx with
-      | None -> raise X86lite_segfault
+      | None -> raise (Failure "load from mem failure") (* X86lite_segfault *)
       | Some i -> int64_of_sbytes (Array.to_list (Array.sub m.mem i 8))
     end
 
-(* Interprets value specified by the operand *)
-let interpret_operand_val (operand: operand) (m: mach): int64 = 
+(* Interprets address specified by the operand *)
+let interpret_operand_addr (operand: operand) (m: mach): int64 = 
   begin match operand with
     | Imm (Lit x) -> x
     | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Invalid_argument "should have resolved all lables")
     | Reg reg -> m.regs.(rind reg)
     | Ind1 (Lit x) -> x
     | Ind2 reg -> m.regs.(rind reg)
-    | Ind3 ((Lit x), reg) -> load_val_from_mem (Int64.add m.regs.(rind reg) x) m
+    | Ind3 ((Lit x), reg) -> Int64.add m.regs.(rind reg) x
   end
+
+(* Interprets value specified by the operand*)
+let interpret_operand_val (operand: operand) (m: mach): int64 = 
+  begin match operand with
+    | Imm (Lit x) -> x
+    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3 ((Lbl _), _) -> raise (Invalid_argument "should have resolved all lables")
+    | Reg reg -> m.regs.(rind reg)
+    | Ind1 (Lit x) -> load_val_from_mem x m
+    | Ind2 reg -> load_val_from_mem m.regs.(rind reg) m
+    | Ind3 ((Lit x), reg) -> load_val_from_mem (Int64.add m.regs.(rind reg) x) m  
+  end 
 
 (* Writes an int64 to memory from  mem_loc to mem_loc + 8 *)
 let write_to_mem (mem_loc:int64) (v:int64) (m:mach): unit = 
   let mem_idx = map_addr mem_loc in
     begin match mem_idx with
-      | None -> raise X86lite_segfault
+      | None -> raise (Failure "write to mem failure")(*X86lite_segfault*)
       | Some i -> 
         let sbyte_list = sbytes_of_int64 v in
           Array.blit (Array.of_list sbyte_list) 0 m.mem i (List.length sbyte_list)
@@ -180,9 +191,9 @@ let write_to_mem (mem_loc:int64) (v:int64) (m:mach): unit =
 (* Updates destination specified by dest with value v *)
 let update_dest (v:int64) (dest:operand) (m:mach) : unit = 
   begin match dest with
-    | Imm _ | Ind1 (Lbl _) | Ind3((Lbl _), _) -> raise (Invalid_argument "dest should be a memory location not value")
+    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3((Lbl _), _) -> raise (Invalid_argument "dest should be a memory location not label")
     | Reg reg -> m.regs.(rind reg) <- v
-    | Ind1 (Lit x) -> write_to_mem x v m
+    | Imm (Lit x) | Ind1 (Lit x) -> write_to_mem x v m
     | Ind2 reg -> 
       let mem_loc = m.regs.(rind reg) in write_to_mem mem_loc v m
     | Ind3 ((Lit x), reg) ->
@@ -193,7 +204,7 @@ let update_dest (v:int64) (dest:operand) (m:mach) : unit =
 let fetch_ins (m:mach) : sbyte =
   let mem_idx = map_addr m.regs.(rind Rip) in
     begin match mem_idx with
-      | None -> raise X86lite_segfault
+      | None -> raise (Failure "fetch_ins_failure")(*X86lite_segfault *)
       | Some i -> m.mem.(i)
     end
   
@@ -281,8 +292,6 @@ let binary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
             false;
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
-
-
 
 let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
   begin match operands with
@@ -395,7 +404,6 @@ let j_cc_step (cc:cnd) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
   end
 
-
 let call_step (operands: operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "jmp is a unary operator")
@@ -409,10 +417,26 @@ let call_step (operands: operand list) (m:mach) : unit =
 let cmp_step (operands: operand list) (m:mach) : unit = 
   begin match operands with 
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "cmp is a binary operator")
-    | a::b::[] -> 
+    | a::b::[] ->
+       begin match b with
+          | Imm _ -> Printf.printf "Imm"
+          | Reg _ -> Printf.printf "Reg"
+          | Ind1 _ -> Printf.printf "Ind1"
+          | Ind2 _ -> Printf.printf "Ind2"
+          | Ind3 _ -> Printf.printf "Ind3"         
+          (*| _ -> Printf.printf "b = %Ld, b_addr =%Ld" (interpret_operand_val b m) (interpret_operand_addr b m);update_dest origin b m*)
+        end; 
+         Printf.printf "-----";
       let origin = interpret_operand_val b m in
         binary_op_step Subq operands m;
-        update_dest origin b m
+        begin match b with
+          | Imm _ -> Printf.printf "Imm "; ()
+          | Reg _ -> Printf.printf "Reg "; update_dest origin b m
+          | Ind1 _ -> Printf.printf "Ind1 "; update_dest origin b m
+          | Ind2 _ -> Printf.printf "Ind2 "; update_dest origin b m
+          | Ind3 _ -> Printf.printf "Ind3 "; update_dest origin b m          
+          (*| _ -> Printf.printf "b = %Ld, b_addr =%Ld" (interpret_operand_val b m) (interpret_operand_addr b m);update_dest origin b m*)
+        end
   end
 
 let set_step (cc:cnd) (operands: operand list) (m:mach) : unit = 
@@ -466,8 +490,6 @@ let step (m:mach) : unit =
             | Shlq | Sarq | Shrq -> bit_op_step opcode operands m
           end
       end 
-
-
 
 
 

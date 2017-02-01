@@ -189,41 +189,6 @@ let jle2 = test_machine [InsB0 (Movq, [Imm (Lit 0x00000AL); Reg Rdi]); InsFrag; 
 
 let retq = test_machine [InsB0 (Callq, [Imm (Lit 0x400004L)]); InsFrag; InsFrag; InsFrag;
                          InsB0 (Retq, []); InsFrag; InsFrag; InsFrag]
-                               
-let fun_tests =
-  [("callq", machine_test "rip = 0x400009, *65520 = 0x400000" 1 callq
-                          (fun m ->
-                            m.regs.(rind Rip) = 0x400009L
-                            && int64_of_sbytes (sbyte_list m.mem (mem_size-16)) = 0x400000L));
-  ("subq", machine_test "rcx = -1" 1 subq
-                          (fun m ->
-                            m.regs.(rind Rax) = (Int64.of_int (-10))));
-  ("jle-jump", machine_test "rip = 0" 3 jle1
-                          (fun m ->
-                            m.regs.(rind Rip) = Int64.zero));
-  ("jle-no jump", machine_test "rip = 0x40000C" 3 jle2
-                               (fun m ->
-                                 m.regs.(rind Rip) = 0x40000CL));
-  ("retq", machine_test "rip = 0x400000L, rsp = 0x40FFF8" 2 retq
-                               (fun m ->
-                                 m.regs.(rind Rip) = 0x400000L &&
-                                   m.regs.(rind Rsp) = 0x40FFF8L))]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 let map_addr_tests = [
     ("map_addr1", assert_eqf (fun () -> (map_addr 0x40FFF8L)) (Some 65528));
@@ -542,7 +507,6 @@ let medium_tests : suite = [
   GradedTest("Functionality Tests", 5, functionality_tests);
   GradedTest("Instruction Tests", 10, instruction_tests);
   GradedTest("Condition Flag Set Tests", 5, condition_flag_set_tests);
-  GradedTest("Additional Tests", 5, fun_tests);
 ]
 
 let hard_tests : suite = [
