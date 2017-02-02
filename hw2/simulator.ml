@@ -132,10 +132,10 @@ let interp_cnd {fo; fs; fz} : cnd -> bool = fun x ->
   begin match x with
     | Eq -> fz
     | Neq -> not fz
-    | Gt -> fs = fo && not fz
+    | Gt -> (fs = fo) && (not fz)
     | Ge -> fs = fo
     | Lt -> fs != fo 
-    | Le -> fs != fo || fz
+    | Le -> (fs != fo) || fz
   end
 
 
@@ -191,9 +191,9 @@ let write_to_mem (mem_loc:int64) (v:int64) (m:mach): unit =
 (* Updates destination specified by dest with value v *)
 let update_dest (v:int64) (dest:operand) (m:mach) : unit = 
   begin match dest with
-    | Imm (Lbl _) | Ind1 (Lbl _) | Ind3((Lbl _), _) -> raise (Invalid_argument "dest should be a memory location not label")
+    | Imm _ | Ind1 (Lbl _) | Ind3((Lbl _), _) -> raise (Invalid_argument "dest should be a memory location not label")
     | Reg reg -> m.regs.(rind reg) <- v
-    | Imm (Lit x) | Ind1 (Lit x) -> write_to_mem x v m
+    | Ind1 (Lit x) -> write_to_mem x v m
     | Ind2 reg -> 
       let mem_loc = m.regs.(rind reg) in write_to_mem mem_loc v m
     | Ind3 ((Lit x), reg) ->
@@ -223,7 +223,23 @@ let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
         end
       in 
         update_dest v b m;
-        m.flags.fo <- fo;
+        begin match op with
+          | Subq ->         
+            if ((Int64.shift_right_logical (interpret_operand_val b m) 63) = 
+            (Int64.shift_right_logical (Int64.neg (interpret_operand_val a m)) 63) && 
+            (Int64.shift_right_logical v 63) != 
+            (Int64.shift_right_logical (Int64.neg (interpret_operand_val a m)) 63)) ||
+            ((interpret_operand_val a m) = Int64.min_int) then
+              m.flags.fo <- true 
+          | Addq -> 
+              if ((Int64.shift_right_logical (interpret_operand_val b m) 63) = 
+              (Int64.shift_right_logical (interpret_operand_val a m) 63) && 
+              (Int64.shift_right_logical v 63) != 
+              (Int64.shift_right_logical (interpret_operand_val a m) 63)) then
+                m.flags.fo <- true
+          | Imulq -> m.flags.fo <- fo
+          | _ -> ()
+        end;
         m.flags.fz <-
           if v = Int64.zero then
             true
@@ -252,7 +268,21 @@ let unary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
         end
       in 
         update_dest v a m;
-        m.flags.fo <- fo;
+        begin match op with
+          | Decq ->         
+            if ((Int64.shift_right_logical (interpret_operand_val a m) 63) = (Int64.shift_right_logical (Int64.neg 1L) 63) && (Int64.shift_right_logical v 63) != (Int64.shift_right_logical (Int64.neg 1L) 63)) then
+              m.flags.fo <- true 
+          | Incq -> 
+              if ((Int64.shift_right_logical (interpret_operand_val a m) 63) = 
+              (Int64.shift_right_logical 1L 63) && 
+              (Int64.shift_right_logical v 63) != 
+              (Int64.shift_right_logical 1L 63)) then
+                m.flags.fo <- true
+          | Negq -> 
+            if v = Int64.min_int then
+              m.flags.fo <- true
+          | _ -> ()
+        end;
         m.flags.fz <-
           if v = Int64.zero then
             true
@@ -308,6 +338,7 @@ let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
    end
 
 let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  Printf.printf "fo = %B, fz = %B, fs = %B\n" m.flags.fo m.flags.fz m.flags.fs;
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "bitwise binary operator") 
     | a::b::[] -> 
@@ -324,17 +355,24 @@ let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
             | Sarq -> Int64.shift_right (interpret_operand_val b m) (Int64.to_int amt)
             | Shrq -> Int64.shift_right_logical (interpret_operand_val b m) (Int64.to_int amt)
             | _ -> raise (Failure "Not a valid bitwise binary operation")
-          end
-        in
+          end in
+        let original_b = (interpret_operand_val b m) in
           update_dest v b m;
-            if (Int64.to_int (interpret_operand_val a m)) <> 0 then
+            if (Int64.to_int (interpret_operand_val a m)) != 0 then
               begin match op with
                 | Sarq ->
                   if amt = 1L then
                     m.flags.fo <- false
-                | Shrq | Shlq ->
+                | Shlq ->
                   if amt = 1L && ((Int64.shift_right_logical v 63) != (Int64.logand (Int64.shift_right_logical v 62) 1L)) then
-                    m.flags.fo <- true
+                    m.flags.fo <- true;
+                      Printf.printf "after shlq, fo = %B" m.flags.fo
+                | Shrq ->
+                  if amt = 1L then
+                    if (Int64.shift_right_logical original_b 63) = 1L then
+                      m.flags.fo <- true
+                    else
+                      m.flags.fo <- false
                 | _ -> raise (Failure "Not a valid bitwise binary operation")
               end;
               m.flags.fz <-
@@ -415,28 +453,30 @@ let call_step (operands: operand list) (m:mach) : unit =
 
 
 let cmp_step (operands: operand list) (m:mach) : unit = 
+  let open Int64_overflow in
   begin match operands with 
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "cmp is a binary operator")
     | a::b::[] ->
-       begin match b with
-          | Imm _ -> Printf.printf "Imm"
-          | Reg _ -> Printf.printf "Reg"
-          | Ind1 _ -> Printf.printf "Ind1"
-          | Ind2 _ -> Printf.printf "Ind2"
-          | Ind3 _ -> Printf.printf "Ind3"         
-          (*| _ -> Printf.printf "b = %Ld, b_addr =%Ld" (interpret_operand_val b m) (interpret_operand_addr b m);update_dest origin b m*)
-        end; 
-         Printf.printf "-----";
-      let origin = interpret_operand_val b m in
-        binary_op_step Subq operands m;
-        begin match b with
-          | Imm _ -> Printf.printf "Imm "; ()
-          | Reg _ -> Printf.printf "Reg "; update_dest origin b m
-          | Ind1 _ -> Printf.printf "Ind1 "; update_dest origin b m
-          | Ind2 _ -> Printf.printf "Ind2 "; update_dest origin b m
-          | Ind3 _ -> Printf.printf "Ind3 "; update_dest origin b m          
-          (*| _ -> Printf.printf "b = %Ld, b_addr =%Ld" (interpret_operand_val b m) (interpret_operand_addr b m);update_dest origin b m*)
-        end
+      let {value = v; overflow = fo} =
+        sub (interpret_operand_val b m) (interpret_operand_val a m)
+      in 
+        if ((Int64.shift_right_logical (interpret_operand_val b m) 63) = 
+        (Int64.shift_right_logical (Int64.neg (interpret_operand_val a m)) 63) && 
+        (Int64.shift_right_logical v 63) != 
+        (Int64.shift_right_logical (Int64.neg (interpret_operand_val a m)) 63)) ||
+        ((interpret_operand_val a m) = Int64.min_int) then
+          m.flags.fo <- true;
+        m.flags.fz <-
+          if v = Int64.zero then
+            true
+          else
+            false;
+        m.flags.fs <-
+          if Int64.shift_right_logical v 63 = 1L then
+            true
+          else
+            false;
+        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
   end
 
 let set_step (cc:cnd) (operands: operand list) (m:mach) : unit = 

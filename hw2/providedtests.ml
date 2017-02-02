@@ -30,7 +30,7 @@ let gcd a b = [ text "mod"
                          ; Movq, [~%R08; ~%R10]
                          ; Callq, [~$$"mod"]
                          ; Movq, [~%R10; ~%R09]
-                         ; Cmpq, [~$0; ~%R08]
+                         ; Cmpq, [~%R08; ~$0]
                          ; J Eq, [~$$"exit"]
                          ; Callq, [~$$"gcd"]
                          ; Retq, []
