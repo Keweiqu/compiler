@@ -96,18 +96,18 @@ let cbarcen_tests =
     in
 
     [ (* Mod tests *)
-      ("10 % 3 = 1", program_test (mod_program 10 3) 1L);
+      (*("10 % 3 = 1", program_test (mod_program 10 3) 1L);
       ("10 % 5 = 0", program_test (mod_program 10 5) 0L);
       ("37 % 35 = 2", program_test (mod_program 37 35) 2L);
       ("51251 % 9999 = 1256", program_test (mod_program 51251 9999) 1256L);
-      ("35 % 35 = 0", program_test (mod_program 35 35) 0L);
+      ("35 % 35 = 0", program_test (mod_program 35 35) 0L);*)
       (* Recursive Euclidean GCD tests *)
       ("gcd (10, 10) = 10", program_test (gcd_program 10 10) 10L);
-      ("gcd (5220, 75) = 15", program_test (gcd_program 5220 75) 15L);
-      ("gcd (179, 64) = 1", program_test (gcd_program 179 64) 1L);
+      (*("gcd (5220, 75) = 15", program_test (gcd_program 5220 75) 15L);
+      (*("gcd (179, 64) = 1", program_test (gcd_program 179 64) 1L);*)
       ("gcd (731, 43) = 43", program_test (gcd_program 731 43) 43L);
       ("gcd (3253, 3323) = 1", program_test (gcd_program 3253 3323) 1L);
-      ("gcd (72, 1) = 1", program_test (gcd_program 72 1) 1L);
+      ("gcd (72, 1) = 1", program_test (gcd_program 72 1) 1L);*)
     ]
 
 let charcobb_tests =
@@ -176,13 +176,13 @@ let charcobb_tests =
       ("gcd 23 19", program_test (gcd 23 19) 1L);
       (* Floor of the logarithm (base 2) of a positive integer. *)
       ("log 1", program_test (log 1L) (0L));
-      (* ("log 2", program_test (log 2L) (1L));
+      ("log 2", program_test (log 2L) (1L));
       ("log 3", program_test (log 3L) (1L));
-      ("log 17", program_test (log 17L) (4L));
+       ("log 17", program_test (log 17L) (4L));
       ("log 23", program_test (log 23L) (4L));
       ("log 24", program_test (log 24L) (4L));
       ("log 31", program_test (log 31L) (4L));
-      ("log 2^63-1", program_test (log 0x7fffffffffffffffL) (62L));*)
+      ("log 2^63-1", program_test (log 0x7fffffffffffffffL) (62L));
   ]
 
 let chinz_tests =
@@ -327,6 +327,7 @@ let chinz_tests =
   (* Tests if the end result is sorted *)
   let sort_test (l:quad list) : bool =
     let len = List.length l in
+    Printf.printf "before sorting\n";
     let m = load (assemble (heapsort l)) in
     let m_done = run_mach m in
     let sorted1 = extract_array m_done len in
@@ -336,7 +337,7 @@ let chinz_tests =
   let array3 = [0L;1L;-1L;2L;-2L;3L;-3L;4L;-4L;5L;-5L;6L;-6L;7L] in
   let array4 = [10L;9L;8L;7L;6L;6L;5L;5L;5L;4L;3L;3L;2L;1L] in
 
-  [ ("heapsort1", assert_eqf (fun () -> (sort_test array1)) true); 
+  [ ("heapsort1", assert_eqf (fun () -> (sort_test array1)) true);
     ("heapsort2", assert_eqf (fun () -> (sort_test array2)) true);
     ("heapsort3", assert_eqf (fun () -> (sort_test array3)) true);
     ("heapsort4", assert_eqf (fun () -> (sort_test array4)) true);
@@ -1442,16 +1443,16 @@ let wmcd_tests =
   ; ("gcd_35_17", program_test (binary_gcd 35 17) 1L)
   ]
 
-let tests = asgoel_tests
-(*          @ cbarcen_tests *)
-          @ charcobb_tests
-(*          @ chinz_tests *)
+let tests = (*asgoel_tests *)
+(*          @ *)cbacen_tests  
+(*          @  charcobb_tests *)
+(*          @ chinz_tests *) 
 (*          @ dmally_tests *)
 (*          @ ellisl_tests *)
 (*          @ honki_tests *)
 (*          @ isibner_tests *)
 (*          @ jampa_tests *)
-(*          @ kainino_tests *)
+(*         @ kainino_tests  *)
 (*          @ lpena_tests *)
 (*          @ maxmcc_tests *)
 (*          @ nchodosh_tests *)

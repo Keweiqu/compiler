@@ -57,6 +57,9 @@ let program_test (p:prog) (ans:int64) () =
 let provided_tests : suite = [
   Test ("Student-Provided Big Test for Part III: Score recorded as PartIIITestCase", [
   	 ("gcd1", program_test (gcd 8 9) 1L);
+     ("gcd1", program_test (gcd 10 10) 10L);
+     ("gcd1", program_test (gcd 121 11) 11L);
+     ("gcd1", program_test (gcd  12 9) 3L);
   ]);
 
 ] 
