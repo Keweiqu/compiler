@@ -309,6 +309,7 @@ let unary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
   end
 
+(* Binary logical operator step *)
 let binary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "logical binary operator") 
@@ -336,6 +337,7 @@ let binary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
+(* Unary Operator Step *)
 let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "logical unary operator") 
@@ -350,6 +352,7 @@ let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
+(* Bit Operator Step *)
 let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "bitwise binary operator") 
@@ -400,6 +403,7 @@ let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
           m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L        
   end
 
+(* Move operator step *)
 let move_step (operands: operand list) (m:mach) : unit = 
   Printf.printf "In movq";
   begin match operands with
@@ -409,6 +413,7 @@ let move_step (operands: operand list) (m:mach) : unit =
   end;
   m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
 
+(* Pushq and Popq step *)
 let push_pop_step (op:opcode) (operands: operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "unary operator")
@@ -425,6 +430,7 @@ let push_pop_step (op:opcode) (operands: operand list) (m:mach) : unit =
       end
   end    
 
+(* Load effective addr step *)
 let lea_step (operands: operand list) (m:mach) : unit = 
   begin match operands with 
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "leaq is a binary operator")
@@ -438,13 +444,15 @@ let lea_step (operands: operand list) (m:mach) : unit =
       end
   end
 
-
+(* JMP step *)
 let jmp_step (operands:operand list) (m:mach) : unit = 
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "jmp is a unary operator")
     | a::[] -> update_dest (interpret_operand_val a m) (Reg Rip) m
   end
 
+
+(* Conditional Jump Step *)
 let j_cc_step (cc:cnd) (operands:operand list) (m:mach) : unit = 
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "j cc is a unary operator")
@@ -455,6 +463,7 @@ let j_cc_step (cc:cnd) (operands:operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
   end
 
+(* Callq step *)
 let call_step (operands: operand list) (m:mach) : unit =
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "jmp is a unary operator")
@@ -464,7 +473,7 @@ let call_step (operands: operand list) (m:mach) : unit =
       m.regs.(rind Rip) <- interpret_operand_val a m
   end
 
-
+(* CMP step *)
 let cmp_step (operands: operand list) (m:mach) : unit =
   Printf.printf "In cmpq, Rdi= %Ld\n" m.regs.(rind Rdi);
   let open Int64_overflow in
@@ -495,6 +504,7 @@ let cmp_step (operands: operand list) (m:mach) : unit =
         m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
   end
 
+(* Setb step *)
 let set_step (cc:cnd) (operands: operand list) (m:mach) : unit = 
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "set is a unary operator")
@@ -508,7 +518,7 @@ let set_step (cc:cnd) (operands: operand list) (m:mach) : unit =
         in update_dest v a m
   end
 
-
+(* Retq step *)
 let ret_step (operands:operand list) (m:mach) : unit = 
   begin match operands with 
     | [] -> push_pop_step Popq [Reg Rip] m
@@ -606,6 +616,7 @@ let separate (p:prog) (acc:(elem list * elem list)): (elem list * elem list) =
   in
     List.fold_left assign acc p
 
+(* Compute the size of the data element in int64 *)
 let compute_size_of_data_elem (e:elem) : int64 =
   let size (acc:int64) (d:data) : int64 =
     begin match d with
@@ -622,8 +633,10 @@ let compute_size_of_data_elem (e:elem) : int64 =
      end
   end
 
+(* Symbol table label type *)
 type label_helper = (int64 * ((string * int64) list))
 
+(* Find Mem addr to put Label into Memory, return a tuple list representing the mapping *)
 let resolve_labels (segments:(elem list * elem list)) : (string * int64) list = 
   let all_segments = (fst segments) @ (snd segments) in 
   let compute_mem ((curr, symbol_table):label_helper) (e:elem) : label_helper =
@@ -644,7 +657,7 @@ let resolve_labels (segments:(elem list * elem list)) : (string * int64) list =
        List.fold_left compute_mem (mem_bot, []) all_segments in 
          symbol_table
      
-
+(* Convert text segments to a list of sbyte *)
 let text_seg_to_sbytes (text_inss: ins list) : sbyte list = 
   let serialize (text_sb: sbyte list) (ins:ins): sbyte list =
     text_sb @ (sbytes_of_ins ins) in
