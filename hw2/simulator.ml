@@ -572,19 +572,6 @@ exception Undefined_sym of lbl
 (* Assemble should raise this when a label is defined more than once *)
 exception Redefined_sym of lbl
 
-(* Convert an X86 program into an object file:
-   - separate the text and data segments
-   - compute the size of each segment
-      Note: the size of an Asciz string section is (1 + the string length)
-
-   - resolve the labels to concrete addresses and 'patch' the instructions to 
-     replace Lbl values with the corresponding Imm values.
-
-   - the text segment starts at the lowest address
-   - the data segment starts after the text segment
-
-  HINT: List.fold_left and List.fold_right are your friends.
- *)
 
 let rec lookup (x:string) (c:(string * int64) list) : int64 =
   begin match c with
@@ -651,7 +638,7 @@ let text_seg_to_sbytes (text_inss: ins list) : sbyte list =
     List.fold_left serialize [] text_inss
 
 
-
+(* Replace labels in an operand list with their corresponding memory addresses *)
 let replace_operands (operands: operand list) (sym_tbl: (string * int64) list) : operand list =
   let resolve_lbl (operands: operand list) (operand:operand) : operand list =
     begin match operand with
@@ -662,12 +649,14 @@ let replace_operands (operands: operand list) (sym_tbl: (string * int64) list) :
     end in
   List.fold_left resolve_lbl [] operands
 
+(* Replace labels in an instruction list with their corresponding memory addresses *)
 let replace_ins (inss:ins list) (sym_tbl: (string * int64) list) : ins list = 
   let helper (acc: ins list) (ins:ins) : ins list = 
     let (opcode, operands) = ins in
       acc @ [(opcode, replace_operands operands sym_tbl)] in
   List.fold_left helper [] inss
 
+(* Replace labels in a data list with their corresponding memory addresses *)
 let replace_data (ds: data list) (sym_tbl: (string * int64) list): data list =
   let helper (acc: data list) (data: data) : data list = 
     begin match data with 
@@ -676,6 +665,7 @@ let replace_data (ds: data list) (sym_tbl: (string * int64) list): data list =
     end in
   List.fold_left helper [] ds
  
+(* Replace labels in an element list with their corresponding memory addresses *)
 let replace_elem_list (el:elem list) (sym_tbl: (string * int64) list) : elem list =
   let helper (acc: elem list) (e:elem) : elem list = 
     begin match e.asm with
@@ -688,20 +678,23 @@ let replace_elem_list (el:elem list) (sym_tbl: (string * int64) list) : elem lis
     end in
   List.fold_left helper [] el
 
-
+(* Replace labels in a program with their corresponding memory addresses *)
 let replace_prog (segs: (elem list * elem list)) (sym_tbl: (string * int64) list) : (elem list * elem list) =
   (replace_elem_list (fst segs) sym_tbl, replace_elem_list (snd segs) sym_tbl) 
   
+(* Helper function to serialize the text segment *)  
 let serialize_ins (inss: ins list): sbyte list =
   let helper (acc:sbyte list) (ins:ins) : sbyte list =
     acc @ (sbytes_of_ins ins) in 
   List.fold_left helper [] inss
 
+(* Helper function to serialize the data segment *)
 let serialize_dt (ds: data list) : sbyte list =
   let helper (acc:sbyte list) (dt:data) : sbyte list =
     acc @ (sbytes_of_data dt) in
   List.fold_left helper [] ds
 
+(* Serializes text and data segments *)
 let serialize_segs (seg: elem list) : sbyte list = 
   let helper (acc:sbyte list) (e:elem) : sbyte list = 
     begin match e.asm with
@@ -710,8 +703,19 @@ let serialize_segs (seg: elem list) : sbyte list =
     end in
   List.fold_left helper [] seg
 
+(* Convert an X86 program into an object file:
+   - separate the text and data segments
+   - compute the size of each segment
+      Note: the size of an Asciz string section is (1 + the string length)
 
+   - resolve the labels to concrete addresses and 'patch' the instructions to 
+     replace Lbl values with the corresponding Imm values.
 
+   - the text segment starts at the lowest address
+   - the data segment starts after the text segment
+
+  HINT: List.fold_left and List.fold_right are your friends.
+ *)
 let assemble (p:prog) : exec =
   let seg_tuple = separate p ([],[]) in
   let symbol_table = resolve_labels seg_tuple in 
