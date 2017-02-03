@@ -152,7 +152,7 @@ let map_addr (addr:quad) : int option =
 let load_val_from_mem (start_loc:int64) (m:mach): int64 =
   let mem_idx = map_addr start_loc in
     begin match mem_idx with
-      | None -> raise (Failure "load from mem failure") (* X86lite_segfault *)
+      | None -> raise X86lite_segfault
       | Some i -> int64_of_sbytes (Array.to_list (Array.sub m.mem i 8))
     end
 
@@ -182,7 +182,7 @@ let interpret_operand_val (operand: operand) (m: mach): int64 =
 let write_to_mem (mem_loc:int64) (v:int64) (m:mach): unit = 
   let mem_idx = map_addr mem_loc in
     begin match mem_idx with
-      | None -> raise (Failure "write to mem failure")(*X86lite_segfault*)
+      | None -> raise X86lite_segfault
       | Some i -> 
         let sbyte_list = sbytes_of_int64 v in
           Array.blit (Array.of_list sbyte_list) 0 m.mem i (List.length sbyte_list)
@@ -204,7 +204,7 @@ let update_dest (v:int64) (dest:operand) (m:mach) : unit =
 let fetch_ins (m:mach) : sbyte =
   let mem_idx = map_addr m.regs.(rind Rip) in
     begin match mem_idx with
-      | None -> raise (Failure "fetch_ins_failure")(*X86lite_segfault *)
+      | None -> raise X86lite_segfault
       | Some i -> m.mem.(i)
     end
   
@@ -218,7 +218,7 @@ let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
         begin match op with
           | Addq -> add (interpret_operand_val a m) (interpret_operand_val b m)
           | Imulq -> mul (interpret_operand_val a m) (interpret_operand_val b m)
-          | Subq -> Printf.printf "subq, rax=%Ld" m.regs.(rind Rax); sub (interpret_operand_val b m) (interpret_operand_val a m)
+          | Subq -> sub (interpret_operand_val b m) (interpret_operand_val a m)
           | _ -> raise (Failure "Not valid binary operation")
         end
       in 
@@ -265,7 +265,7 @@ let unary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
     | a::[] -> 
       let {value =v; overflow = fo} =
         begin match op with
-          | Incq -> Printf.printf "incq, rax=%Ld\n" m.regs.(rind Rax); succ (interpret_operand_val a m)
+          | Incq -> succ (interpret_operand_val a m)
           | Decq -> pred (interpret_operand_val a m)
           | Negq -> neg (interpret_operand_val a m)
           | _ -> raise (Failure "Not valid unary operation")
@@ -405,7 +405,6 @@ let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
 
 (* Move operator step *)
 let move_step (operands: operand list) (m:mach) : unit = 
-  Printf.printf "In movq";
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "binary operator") 
     | a::b::[] -> 
@@ -475,7 +474,6 @@ let call_step (operands: operand list) (m:mach) : unit =
 
 (* CMP step *)
 let cmp_step (operands: operand list) (m:mach) : unit =
-  Printf.printf "In cmpq, Rdi= %Ld\n" m.regs.(rind Rdi);
   let open Int64_overflow in
   begin match operands with 
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "cmp is a binary operator")
@@ -538,7 +536,7 @@ let step (m:mach) : unit =
     let insn = fetch_ins m in
       begin match insn with
         | InsFrag -> raise (Invalid_argument "insfrag not an instruction")
-        | Byte _ -> Printf.printf "rax=%Ld, rbx=%Ld" m.regs.(rind Rax) m.regs.(rind Rbx); raise (Invalid_argument "byte not an instruction")
+        | Byte _ -> raise (Invalid_argument "byte not an instruction")
         | InsB0 (opcode, operands) ->
           begin match opcode with
             | Movq -> move_step operands m 

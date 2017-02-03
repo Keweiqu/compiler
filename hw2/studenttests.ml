@@ -983,8 +983,8 @@ let kainino_tests =
     
     [
       ("sieve 10", program_test (sieve 10) 7L);
-      ("sieve 16", program_test (sieve 16) 13L);
-      ("sieve 156", program_test (sieve 156) 151L);
+    (*  ("sieve 16", program_test (sieve 16) 13L);
+      ("sieve 156", program_test (sieve 156) 151L); *)
     ]
 
 let lpena_tests =
@@ -1444,7 +1444,7 @@ let wmcd_tests =
   ]
 
 let tests = (*asgoel_tests *)
-(*          @ *)cbacen_tests  
+(*          @  cbarcen_tests  *)
 (*          @  charcobb_tests *)
 (*          @ chinz_tests *) 
 (*          @ dmally_tests *)
@@ -1452,7 +1452,7 @@ let tests = (*asgoel_tests *)
 (*          @ honki_tests *)
 (*          @ isibner_tests *)
 (*          @ jampa_tests *)
-(*         @ kainino_tests  *)
+(*         @ *)kainino_tests 
 (*          @ lpena_tests *)
 (*          @ maxmcc_tests *)
 (*          @ nchodosh_tests *)
