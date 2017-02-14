@@ -210,6 +210,7 @@ let fetch_ins (m:mach) : sbyte =
   
 (* Finishes arithmetic step with two operands *)
 let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   let open Int64_overflow in
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "binary operator") 
@@ -254,11 +255,11 @@ let binary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
             true
           else
             false;
-        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
 (* Finishes arithmetic step with one operand *)
 let unary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   let open Int64_overflow in
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "unary operator") 
@@ -306,11 +307,11 @@ let unary_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
             true
           else
             false;
-        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
   end
 
 (* Binary logical operator step *)
 let binary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "logical binary operator") 
     | a::b::[] -> 
@@ -334,11 +335,11 @@ let binary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
             true
           else
             false;
-        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
 (* Unary Operator Step *)
 let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "logical unary operator") 
     | a::[] -> 
@@ -349,11 +350,11 @@ let unary_log_step (op:opcode) (operands:operand list) (m:mach) : unit =
         end
       in 
         update_dest v a m;
-        m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
    end
 
 (* Bit Operator Step *)
 let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "bitwise binary operator") 
     | a::b::[] -> 
@@ -400,17 +401,17 @@ let bit_op_step (op:opcode) (operands:operand list) (m:mach) : unit =
                   true
                 else
                   false;
-          m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L        
   end
 
 (* Move operator step *)
 let move_step (operands: operand list) (m:mach) : unit = 
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "binary operator") 
     | a::b::[] -> 
       let v = interpret_operand_val a m in update_dest v b m
-  end;
-  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L
+  end
+
 
 (* Pushq and Popq step *)
 let push_pop_step (op:opcode) (operands: operand list) (m:mach) : unit =
@@ -431,6 +432,7 @@ let push_pop_step (op:opcode) (operands: operand list) (m:mach) : unit =
 
 (* Load effective addr step *)
 let lea_step (operands: operand list) (m:mach) : unit = 
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with 
     | [] | _::[] | _::_::_::_ -> raise (Invalid_argument "leaq is a binary operator")
     | a::b::[] ->
@@ -504,6 +506,7 @@ let cmp_step (operands: operand list) (m:mach) : unit =
 
 (* Setb step *)
 let set_step (cc:cnd) (operands: operand list) (m:mach) : unit = 
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with
     | [] | _::_::_ -> raise (Invalid_argument "set is a unary operator")
     | a::[] ->
@@ -518,6 +521,7 @@ let set_step (cc:cnd) (operands: operand list) (m:mach) : unit =
 
 (* Retq step *)
 let ret_step (operands:operand list) (m:mach) : unit = 
+  m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L;
   begin match operands with 
     | [] -> push_pop_step Popq [Reg Rip] m
     | _ -> raise (Invalid_argument "ret does not accept operands")
@@ -540,7 +544,7 @@ let step (m:mach) : unit =
         | InsB0 (opcode, operands) ->
           begin match opcode with
             | Movq -> move_step operands m 
-            | Pushq | Popq -> push_pop_step opcode operands m
+            | Pushq | Popq -> m.regs.(rind Rip) <- Int64.add m.regs.(rind Rip) 4L; push_pop_step opcode operands m
             | Leaq -> lea_step operands m 
             | Jmp -> jmp_step operands m
             | J cnd -> j_cc_step cnd operands m
