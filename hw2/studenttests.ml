@@ -1443,22 +1443,22 @@ let wmcd_tests =
   ; ("gcd_35_17", program_test (binary_gcd 35 17) 1L)
   ]
 
-let tests = (*asgoel_tests *)
-(*          @  cbarcen_tests  *)
-(*          @  charcobb_tests *)
-(*          @ chinz_tests *) 
-(*          @ dmally_tests *)
-(*          @ ellisl_tests *)
-(*          @ honki_tests *)
-(*          @ isibner_tests *)
-(*          @ jampa_tests *)
-(*         @ *)kainino_tests 
-(*          @ lpena_tests *)
-(*          @ maxmcc_tests *)
-(*          @ nchodosh_tests *)
-(*          @ palimar_tests *)
-(*          @ samrossi_tests *)
-(*          @ tgarsys_tests *)
-(*          @ wmcd_tests *)
+let tests =  asgoel_tests
+          @ cbarcen_tests
+          @ charcobb_tests
+          @ chinz_tests
+          @ dmally_tests
+          @ ellisl_tests
+          @ honki_tests
+          @ isibner_tests
+          @ jampa_tests
+          @  kainino_tests
+          @ lpena_tests
+          @ maxmcc_tests
+          @ nchodosh_tests
+          @ palimar_tests
+          @ samrossi_tests
+          @ tgarsys_tests
+          @ wmcd_tests
 
 let other_team_tests = [GradedTest("OtherTeamTests (manual)", 10, tests)]
