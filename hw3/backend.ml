@@ -331,8 +331,16 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
    - LLVMlite uids and labels share a namespace. Block labels you encounter
      should be associated with Alloc.Llbl
 *)
+
+let rec param_layout_helper (offset:int) (acc:layout) (params:uid list) : layout = 
+  begin match params with
+    | [] -> acc
+    | h::t -> param_layout_helper (offset + 8) (acc @ [(h, Alloc.LStk offset)]) t
+  end
+
 let stack_layout (f:Ll.fdecl) : layout =
-failwith "stack_layout unimplemented"
+  param_layout_helper 0 [] f.param
+
 
 (* The code for the entry-point of a function must do several things:
 
@@ -361,11 +369,19 @@ failwith "stack_layout unimplemented"
    [ NOTE: the first six arguments are numbered 0 .. 5 ]
 *)
 let arg_loc (n : int) : operand =
-  failwith "arg_loc unimplemented"
+  begin match n with
+    | 0 -> Reg Rdi
+    | 1 -> Reg Rsi
+    | 2 -> Reg Rdx
+    | 3 -> Reg Rcx
+    | 4 -> Reg R08
+    | 5 -> Reg R09
+    | x -> Imm (Lit (Int64.of_int ((x - 6) * 8)))
+  end  
 
 
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-failwith "compile_fdecl unimplemented"
+  
 
 (* compile_gdecl ------------------------------------------------------------ *)
 
