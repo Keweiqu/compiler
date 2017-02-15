@@ -376,12 +376,12 @@ let arg_loc (n : int) : operand =
     | 3 -> Reg Rcx
     | 4 -> Reg R08
     | 5 -> Reg R09
-    | x -> Imm (Lit (Int64.of_int ((x - 6) * 8)))
+    | x -> Imm (Lit (Int64.of_int ((4 - x) * 8)))
   end  
 
 
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-  
+    
 
 (* compile_gdecl ------------------------------------------------------------ *)
 
