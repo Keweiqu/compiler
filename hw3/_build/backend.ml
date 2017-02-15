@@ -368,7 +368,7 @@ let stack_layout (f:Ll.fdecl) : layout =
 
    [ NOTE: the first six arguments are numbered 0 .. 5 ]
 *)
-let arg_loc (n : int) : operand =
+let arg_loc (n : int) : X86.operand =
   begin match n with
     | 0 -> Reg Rdi
     | 1 -> Reg Rsi
@@ -376,12 +376,35 @@ let arg_loc (n : int) : operand =
     | 3 -> Reg Rcx
     | 4 -> Reg R08
     | 5 -> Reg R09
-    | x -> Imm (Lit (Int64.of_int ((x - 6) * 8)))
+    | x -> Ind3 (Lit (Int64.of_int ((4 - x) * 8)), Rbp)
   end  
 
+let rec lookup_layout (uid:uid) (stack_layout:layout) : Alloc.loc = 
+  begin match stack_layout with
+    | [] -> raise (Failure "Did not find uid in stack layout")
+    | (u, loc)::t -> 
+      if uid = u then
+        loc
+      else
+        lookup_layout uid t
+  end
+
+let rec copy_parameter (params:uid list) (stack_layout:layout) (stream:x86stream) (idx:int) : x86stream = 
+  begin match params with
+    | [] -> stream
+    | uid::t ->   
+      let caller_loc = arg_loc idx in
+        begin match caller_loc with
+          | Reg reg -> copy_parameter t stack_layout ((I (Pushq, [Reg reg]))::stream) (idx + 1)
+          | Ind3 (x, Rbp) -> copy_parameter t stack_layout ((I (Pushq, [Ind3 (x, Rbp)]))::stream) (idx + 1)
+          | _ -> raise (Failure "cannot copy parameter")
+        end  
+  end
 
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-failwith "compile_fdecl unimplemented"
+  let init_stack_frame = [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)] in
+  let layout = stack_layout f in copy_parameter f.param layout init_stack_frame 0
+  
 
 (* compile_gdecl ------------------------------------------------------------ *)
 
