@@ -114,7 +114,7 @@ let memory_tests =
   ]
 
 let terminator_tests =
-  [ "llprograms/return.ll", 0L
+  [ "llprograms/returnvoid.ll", 0L
   ; "llprograms/return42.ll", 42L
   ; "llprograms/br1.ll", 9L
   ; "llprograms/br2.ll", 17L    
