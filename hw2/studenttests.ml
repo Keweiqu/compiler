@@ -327,7 +327,6 @@ let chinz_tests =
   (* Tests if the end result is sorted *)
   let sort_test (l:quad list) : bool =
     let len = List.length l in
-    Printf.printf "before sorting\n";
     let m = load (assemble (heapsort l)) in
     let m_done = run_mach m in
     let sorted1 = extract_array m_done len in

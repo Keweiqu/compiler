@@ -208,6 +208,23 @@ let compile_operand : Alloc.operand -> X86.operand =
 let compile_call (fo:Alloc.operand) (os:(ty * Alloc.operand) list) : x86stream = 
 failwith "compile_call unimplemented"
 
+
+let compile_return (loc: Alloc.loc) (insn: Alloc.insn) (cur_stream:x86stream) : x86stream = 
+  let restore_regs_stream = 
+    (I (Movq, [ Ind3 (Lit (-8L), Rbp); Reg Rbx ])) ::
+    (I (Movq, [ Ind3 (Lit (-16L), Rbp); Reg R12 ])) ::
+    (I (Movq, [ Ind3 (Lit (-24L), Rbp); Reg R13 ])) ::
+    (I (Movq, [ Ind3 (Lit (-32L), Rbp); Reg R14 ])) ::
+    (I (Movq, [ Ind3 (Lit (-40L), Rbp); Reg R15 ])) ::
+    cur_stream in
+  let store_rbp_rsp_stream = 
+    (I (Movq, [Ind2 Rbp; Reg Rbp])) ::
+    (I (Subq, [Imm (Lit 8L); Reg Rsp])) ::
+    (I (Movq, [Reg Rbp; Reg Rsp])) ::
+    restore_regs_stream in
+  (I (Retq, [])) :: store_rbp_rsp_stream
+    
+
 (* compiling getelementptr (gep)  ------------------------------------------- *)
 
 (* The getelementptr instruction computes an address by indexing into
@@ -315,7 +332,13 @@ failwith " unimplemented"
 *)
 
 let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
-  failwith "compile_fbody unimplemented"
+  let step_helper (acc: x86stream) (ins: (Alloc.loc * Alloc.insn)) : x86stream =
+    let loc, insn = ins in
+      begin match insn with
+        | Alloc.Ret _ -> compile_return loc insn acc
+        | _ -> failwith "Not implemented"
+      end in
+  List.fold_left step_helper [] af
 
 (* compile_fdecl ------------------------------------------------------------ *)
 
@@ -335,11 +358,11 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
 let rec param_layout_helper (offset:int) (acc:layout) (params:uid list) : layout = 
   begin match params with
     | [] -> acc
-    | h::t -> param_layout_helper (offset + 8) (acc @ [(h, Alloc.LStk offset)]) t
+    | h::t -> param_layout_helper (offset - 8) (acc @ [(h, Alloc.LStk offset)]) t
   end
 
 let stack_layout (f:Ll.fdecl) : layout =
-  param_layout_helper 0 [] f.param
+  param_layout_helper (-48) [] f.param
 
 
 (* The code for the entry-point of a function must do several things:
@@ -376,7 +399,7 @@ let arg_loc (n : int) : X86.operand =
     | 3 -> Reg Rcx
     | 4 -> Reg R08
     | 5 -> Reg R09
-    | x -> Ind3 (Lit (Int64.of_int ((4 - x) * 8)), Rbp)
+    | x -> Ind3 (Lit (Int64.of_int ((x - 4) * 8)), Rbp)
   end  
 
 let rec lookup_layout (uid:uid) (stack_layout:layout) : Alloc.loc = 
@@ -389,22 +412,35 @@ let rec lookup_layout (uid:uid) (stack_layout:layout) : Alloc.loc =
         lookup_layout uid t
   end
 
-let rec copy_parameter (params:uid list) (stack_layout:layout) (stream:x86stream) (idx:int) : x86stream = 
+let rec copy_parameter (params:uid list) (stack_layout:layout) (cur_stream:x86stream) (idx:int) : x86stream = 
   begin match params with
-    | [] -> stream
+    | [] -> cur_stream
     | uid::t ->   
       let caller_loc = arg_loc idx in
         begin match caller_loc with
-          | Reg reg -> copy_parameter t stack_layout ((I (Pushq, [Reg reg]))::stream) (idx + 1)
-          | Ind3 (x, Rbp) -> copy_parameter t stack_layout ((I (Pushq, [Ind3 (x, Rbp)]))::stream) (idx + 1)
+          | Reg reg -> copy_parameter t stack_layout ((I (Pushq, [Reg reg])):: cur_stream) (idx + 1)
+          | Ind3 (x, Rbp) -> copy_parameter t stack_layout ((I (Pushq, [Ind3 (x, Rbp)])) :: cur_stream) (idx + 1)
           | _ -> raise (Failure "cannot copy parameter")
         end  
   end
 
+let callee_save_regs (cur_86stream: x86stream) : x86stream = 
+  (I (Pushq, [Reg R15])) ::
+  (I (Pushq, [Reg R14])) ::
+  (I (Pushq, [Reg R13])) ::
+  (I (Pushq, [Reg R12])) :: 
+  (I (Pushq, [Reg Rbx])) :: 
+  cur_86stream
+
 (* To do: 1. Save Caller, Callee registers, possibly change arg_loc *)
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-  let init_stack_frame = [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)] in
-  let layout = stack_layout f in copy_parameter f.param layout init_stack_frame 0
+  let init_stack_frame_stream = [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)] in
+  let callee_save_stream = callee_save_regs init_stack_frame_stream in
+  let layout = stack_layout f in 
+  let copy_param_stream =  copy_parameter f.param layout callee_save_stream 0 in
+  let fbody = alloc_cfg layout f.cfg in
+  let body_stream = compile_fbody tdecls fbody in 
+    body_stream @ copy_param_stream
   
 
 (* compile_gdecl ------------------------------------------------------------ *)
