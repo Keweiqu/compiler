@@ -381,7 +381,7 @@ let arg_loc (n : int) : operand =
 
 
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-    
+  failwith "compile_fdecl not implemented"    
 
 (* compile_gdecl ------------------------------------------------------------ *)
 
