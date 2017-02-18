@@ -177,8 +177,19 @@ let prog_of_x86stream : x86stream -> X86.prog =
    whose job is to generate the X86 operand corresponding to an allocated 
    LLVMlite operand.
  *)
-let compile_operand : Alloc.operand -> X86.operand = 
-  function _ -> failwith "compile_operand unimplemented"
+let compile_operand (operand:Alloc.operand) : X86.operand = 
+  begin match operand with
+    | Alloc.Null -> Imm (Lit 0L)
+    | Alloc.Const c -> Imm (Lit c)
+    | Alloc.Gid lbl -> Imm (Lbl lbl)
+    | Alloc.Loc loc -> 
+      begin match loc with
+        | Alloc.LVoid -> raise (Invalid_argument "operand is LVoid")
+        | Alloc.LReg reg -> Ind2 reg
+        | Alloc.LStk x -> Ind1 (Lit (Int64.of_int x))
+        | Alloc.LLbl lbl -> Ind1 (Lbl lbl) 
+      end
+  end
 
 
 
