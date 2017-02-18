@@ -6,7 +6,7 @@
 # Target: util/assert.cmi, tags: { byte, compile, extension:mli, file:util/assert.mli, interf, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -c -I util -I x86 -I ll -o util/assert.cmi util/assert.mli # cached
 # Target: backend.ml.depends, tags: { extension:ml, file:backend.ml, ocaml, ocamldep, quiet }
-/home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules backend.ml > backend.ml.depends
+/home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules backend.ml > backend.ml.depends # cached
 # Target: ll/ll.ml.depends, tags: { extension:ml, file:ll/ll.ml, ocaml, ocamldep, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules ll/ll.ml > ll/ll.ml.depends # cached
 # Target: ll/ll.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:ll/ll.cmo, file:ll/ll.ml, implem, ocaml, quiet }
@@ -19,6 +19,8 @@
 /home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules x86/x86.ml > x86/x86.ml.depends # cached
 # Target: x86/x86.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:x86/x86.cmo, file:x86/x86.ml, implem, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -c -I x86 -I util -I ll -o x86/x86.cmo x86/x86.ml # cached
+# Target: backend.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:backend.cmo, file:backend.ml, implem, ocaml, quiet }
+/home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -c -I x86 -I util -I ll -o backend.cmo backend.ml # cached
 # Target: driver.ml.depends, tags: { extension:ml, file:driver.ml, ocaml, ocamldep, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules driver.ml > driver.ml.depends # cached
 # Target: ll/lllexer.mll, tags: { extension:mll, file:ll/lllexer.mll, lexer, ocaml, ocamllex, quiet }
@@ -39,8 +41,6 @@ menhir --ocamlc '/home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -I ll -I x86 -I uti
 /home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -c -I x86 -I util -I ll -o driver.cmo driver.ml # cached
 # Target: gradedtests.ml.depends, tags: { extension:ml, file:gradedtests.ml, ocaml, ocamldep, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules gradedtests.ml > gradedtests.ml.depends # cached
-# Target: backend.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:backend.cmo, file:backend.ml, implem, ocaml, quiet }
-/home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -c -I x86 -I util -I ll -o backend.cmo backend.ml
 # Target: gradedtests.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:gradedtests.cmo, file:gradedtests.ml, implem, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -c -I x86 -I util -I ll -o gradedtests.cmo gradedtests.ml # cached
 # Target: providedtests.ml.depends, tags: { extension:ml, file:providedtests.ml, ocaml, ocamldep, quiet }
@@ -59,6 +59,8 @@ menhir --ocamlc '/home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -I ll -I x86 -I uti
 /home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o platform.cmx platform.ml # cached
 # Target: x86/x86.cmx, tags: { compile, extension:cmx, extension:ml, file:x86/x86.cmx, file:x86/x86.ml, implem, native, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o x86/x86.cmx x86/x86.ml # cached
+# Target: backend.cmx, tags: { compile, extension:cmx, extension:ml, file:backend.cmx, file:backend.ml, implem, native, ocaml, quiet }
+/home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o backend.cmx backend.ml # cached
 # Target: ll/llparser.ml.depends, tags: { extension:ml, file:ll/llparser.ml, ocaml, ocamldep, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamldep.opt -modules ll/llparser.ml > ll/llparser.ml.depends # cached
 # Target: ll/llparser.cmx, tags: { compile, extension:cmx, extension:ml, file:ll/llparser.cmx, file:ll/llparser.ml, implem, native, ocaml, quiet }
@@ -67,8 +69,6 @@ menhir --ocamlc '/home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -I ll -I x86 -I uti
 /home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I ll -I x86 -I util -o ll/lllexer.cmx ll/lllexer.ml # cached
 # Target: driver.cmx, tags: { compile, extension:cmx, extension:ml, file:driver.cmx, file:driver.ml, implem, native, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o driver.cmx driver.ml # cached
-# Target: backend.cmx, tags: { compile, extension:cmx, extension:ml, file:backend.cmx, file:backend.ml, implem, native, ocaml, quiet }
-/home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o backend.cmx backend.ml
 # Target: gradedtests.cmx, tags: { compile, extension:cmx, extension:ml, file:gradedtests.cmx, file:gradedtests.ml, implem, native, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o gradedtests.cmx gradedtests.ml # cached
 # Target: providedtests.cmx, tags: { compile, extension:cmx, extension:ml, file:providedtests.cmx, file:providedtests.ml, implem, native, ocaml, quiet }
@@ -76,5 +76,5 @@ menhir --ocamlc '/home1/c/cis341/.opam/4.04.0/bin/ocamlc.opt -I ll -I x86 -I uti
 # Target: main.cmx, tags: { compile, extension:cmx, extension:ml, file:main.cmx, file:main.ml, implem, native, ocaml, quiet }
 /home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt -c -I x86 -I util -I ll -o main.cmx main.ml # cached
 # Target: main.native, tags: { dont_link_with, extension:native, file:main.native, link, native, ocaml, program, quiet }
-/home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt unix.cmxa str.cmxa nums.cmxa ll/ll.cmx platform.cmx x86/x86.cmx backend.cmx ll/llparser.cmx ll/lllexer.cmx driver.cmx util/assert.cmx gradedtests.cmx providedtests.cmx main.cmx -o main.native
+/home1/c/cis341/.opam/4.04.0/bin/ocamlopt.opt unix.cmxa str.cmxa nums.cmxa ll/ll.cmx platform.cmx x86/x86.cmx backend.cmx ll/llparser.cmx ll/lllexer.cmx driver.cmx util/assert.cmx gradedtests.cmx providedtests.cmx main.cmx -o main.native # cached
 # Compilation successful.

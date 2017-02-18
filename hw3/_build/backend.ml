@@ -401,6 +401,7 @@ let rec copy_parameter (params:uid list) (stack_layout:layout) (stream:x86stream
         end  
   end
 
+(* To do: 1. Save Caller, Callee registers, possibly change arg_loc *)
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let init_stack_frame = [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)] in
   let layout = stack_layout f in copy_parameter f.param layout init_stack_frame 0
