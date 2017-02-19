@@ -186,11 +186,35 @@ let compile_operand (operand:Alloc.operand) : X86.operand =
       begin match loc with
         | Alloc.LVoid -> raise (Invalid_argument "operand is LVoid")
         | Alloc.LReg reg -> Ind2 reg
-        | Alloc.LStk x -> Ind1 (Lit (Int64.of_int x))
+        | Alloc.LStk x -> Ind3 (Lit (Int64.of_int x), Rbp)
         | Alloc.LLbl lbl -> Ind1 (Lbl lbl) 
       end
   end
 
+let compile_binop (loc:Alloc.loc) (bop, ty, operand1, operand2: (bop * ty * Alloc.operand * Alloc.operand)) : x86stream =
+  let move_operands = [
+                        I (Movq, [(compile_operand operand2); Reg R11]);
+                        I (Movq, [(compile_operand operand1); Reg Rcx]);
+                      ] in
+  let perform_binop =  begin match bop with
+    | Ll.Add -> [I (Addq, [Reg Rcx; Reg R11])]
+    | Ll.Sub -> [I (Subq, [Reg Rcx; Reg R11])]
+    | Ll.Mul -> [I (Imulq, [Reg Rcx; Reg R11])]
+    | Ll.Shl -> [I (Shlq, [Reg Rcx; Reg R11])]
+    | Ll.Lshr -> [I (Shrq, [Reg Rcx; Reg R11])]
+    | Ll.Ashr -> [I (Sarq, [Reg Rcx; Reg R11])]
+    | Ll.And -> [I (Andq, [Reg Rcx; Reg R11])]
+    | Ll.Or -> [I (Orq, [Reg Rcx; Reg R11])]
+    | Ll.Xor -> [I (Xorq, [Reg Rcx; Reg R11])]
+  end in
+  let move_to_loc = 
+    begin match loc with
+      | Alloc.LVoid -> []
+      | Alloc.LReg reg -> [I (Movq, [Reg R11; Reg reg])] 
+      | Alloc.LStk x -> [I (Movq, [Reg R11; Ind3 (Lit (Int64.of_int x), Rbp)])]
+      | Alloc.LLbl lbl -> [I (Movq, [Reg R11; Imm (Lbl lbl)])]
+    end in
+  move_to_loc @ perform_binop @ move_operands
 
 
 
@@ -228,12 +252,19 @@ let compile_return (loc: Alloc.loc) (insn: Alloc.insn) (cur_stream:x86stream) : 
     (I (Movq, [ Ind3 (Lit (-32L), Rbp); Reg R14 ])) ::
     (I (Movq, [ Ind3 (Lit (-40L), Rbp); Reg R15 ])) ::
     cur_stream in
-  let store_rbp_rsp_stream = 
+  let put_to_rax_stream = 
+    begin match insn with
+      | Alloc.Ret (_, None) -> restore_regs_stream
+      | Alloc.Ret (_, Some operand) -> (I (Movq, [compile_operand operand; Reg Rax])) :: restore_regs_stream
+      | _ -> raise (Invalid_argument "Not a Ret insn")
+    end in
+  let restore_rbp_rsp_stream = 
     (I (Movq, [Ind2 Rbp; Reg Rbp])) ::
-    (I (Subq, [Imm (Lit 8L); Reg Rsp])) ::
+    (* (I (Subq, [Imm (Lit 8L); Reg Rsp])) :: *)
     (I (Movq, [Reg Rbp; Reg Rsp])) ::
-    restore_regs_stream in
-  (I (Retq, [])) :: store_rbp_rsp_stream
+    put_to_rax_stream in
+      (I (Retq, [])) :: restore_rbp_rsp_stream
+
     
 
 (* compiling getelementptr (gep)  ------------------------------------------- *)
@@ -347,6 +378,7 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
     let loc, insn = ins in
       begin match insn with
         | Alloc.Ret _ -> compile_return loc insn acc
+        | Alloc.Binop (b, t, op1, op2) -> compile_binop loc (b, t, op1, op2)
         | _ -> failwith "Not implemented"
       end in
   List.fold_left step_helper [] af
@@ -366,14 +398,39 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
      should be associated with Alloc.Llbl
 *)
 
-let rec param_layout_helper (offset:int) (acc:layout) (params:uid list) : layout = 
+let rec block_layout_helper (offset:int) (acc:layout) (insns:(uid * Ll.insn) list) : (layout * int) =
+  begin match insns with
+    | [] -> (acc, offset)
+    | (uid, insn)::t -> 
+      begin match insn with
+        | Store _ | Call (Void, _, _) -> block_layout_helper offset ((uid, Alloc.LVoid) :: acc) t
+        | _ -> block_layout_helper (offset - 8) ((uid, Alloc.LStk offset) :: acc) t
+      end
+  end
+
+let rec lbl_block_layout_helper (offset:int) (acc:layout) (blocks: (lbl * block) list) : (layout * int) =
+  begin match blocks with
+    | [] -> (acc, offset)
+    | (lbl, block)::t -> 
+      let new_layout, new_offset = block_layout_helper offset acc block.insns in
+      lbl_block_layout_helper new_offset ((lbl, Alloc.LLbl lbl) :: new_layout) t
+  end
+
+let cfg_layout_helper (offset:int) (acc:layout) ((blck, blcks):Ll.cfg) : (layout * int) = 
+  let new_layout, new_offset = block_layout_helper offset acc blck.insns in
+  lbl_block_layout_helper new_offset new_layout blcks
+  
+
+let rec param_layout_helper (offset:int) (acc:layout) (params:uid list) : (layout * int) = 
   begin match params with
-    | [] -> acc
-    | h::t -> param_layout_helper (offset - 8) (acc @ [(h, Alloc.LStk offset)]) t
+    | [] -> (acc, offset)
+    | h::t -> param_layout_helper (offset - 8) ((h, Alloc.LStk offset) :: acc) t
   end
 
 let stack_layout (f:Ll.fdecl) : layout =
-  param_layout_helper (-48) [] f.param
+  let layout, offset = param_layout_helper (-48) [] f.param in
+  let layout1, _ = cfg_layout_helper offset layout f.cfg in
+    layout1
 
 
 (* The code for the entry-point of a function must do several things:
@@ -445,13 +502,15 @@ let callee_save_regs (cur_86stream: x86stream) : x86stream =
 
 (* To do: 1. Save Caller, Callee registers, possibly change arg_loc *)
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-  let init_stack_frame_stream = [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)] in
+  let init_stack_frame_stream = [I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L (g,true)] in
   let callee_save_stream = callee_save_regs init_stack_frame_stream in
-  let layout = stack_layout f in 
+  let layout = stack_layout f in
   let copy_param_stream =  copy_parameter f.param layout callee_save_stream 0 in
   let fbody = alloc_cfg layout f.cfg in
   let body_stream = compile_fbody tdecls fbody in 
+    Printf.printf "%B\n" (layout = []);
     body_stream @ copy_param_stream
+
   
 
 (* compile_gdecl ------------------------------------------------------------ *)
