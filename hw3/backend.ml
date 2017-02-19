@@ -187,7 +187,7 @@ let compile_operand (operand:Alloc.operand) : X86.operand =
         | Alloc.LVoid -> raise (Invalid_argument "operand is LVoid")
         | Alloc.LReg reg -> Ind2 reg
         | Alloc.LStk x -> Ind3 (Lit (Int64.of_int x), Rbp)
-        | Alloc.LLbl lbl -> Ind1 (Lbl lbl) 
+        | Alloc.LLbl lbl -> Imm (Lbl lbl) 
       end
   end
 
@@ -309,8 +309,28 @@ let compile_return (loc: Alloc.loc) (insn: Alloc.insn) (cur_stream:x86stream) : 
    - Void, i8, and functions have undefined sizes according to LLVMlite.
      Your function should simply return 0 in those cases
 *)
+
+let rec find_type_alias tdecls (tid:string) : ty = 
+  begin match tdecls with
+    | [] -> raise (Invalid_argument "tid undefined")
+    | (t, ty)::tail ->
+      if t = tid then
+        ty
+      else 
+        find_type_alias tail tid
+  end
+
 let rec size_ty tdecls t : int =
-failwith "size_ty not implemented"
+  begin match t with
+    | Void | I8 | Fun _ -> 0
+    | I1 | I64 | Ptr _ -> 8
+    | Struct t_list -> 
+      let helper (acc:int) (t:ty) : int =
+        acc + (size_ty tdecls t)
+      in List.fold_left helper 0 t_list
+    | Array (size, elem) -> size * (size_ty tdecls elem) 
+    | Namedt tid -> size_ty tdecls (find_type_alias tdecls tid)
+  end
 
 (* Generates code that computes a pointer value.  
 
@@ -397,11 +417,15 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
   let step_helper (acc: x86stream) (ins: (Alloc.loc * Alloc.insn)) : x86stream =
     let loc, insn = ins in
       begin match insn with
-        | Alloc.ILbl -> []
+        | Alloc.ILbl -> 
+          begin match loc with
+            | Alloc.LLbl lbl -> (L (lbl, false)) :: acc
+            | _ -> raise (Failure "not a label")
+          end
         | Alloc.Ret _ -> compile_return loc insn acc
-        | Alloc.Binop (b, t, op1, op2) -> compile_binop loc (b, t, op1, op2)
-        | Alloc.Br loc1 -> Printf.printf "match br\n"; compile_br loc1
-        | Alloc.Icmp (c, t, op1, op2) -> compile_icmp loc (c, t, op1, op2)
+        | Alloc.Binop (b, t, op1, op2) -> (compile_binop loc (b, t, op1, op2)) @ acc
+        | Alloc.Br loc1 -> Printf.printf "match br\n"; (compile_br loc1) @ acc
+        | Alloc.Icmp (c, t, op1, op2) -> (compile_icmp loc (c, t, op1, op2)) @ acc
         | Alloc.Cbr (c, loc1, loc2) -> failwith "cbr Not implemented"
         | _ -> failwith "Not implemented"
       end in
@@ -524,6 +548,12 @@ let callee_save_regs (cur_86stream: x86stream) : x86stream =
   (I (Pushq, [Reg Rbx])) :: 
   cur_86stream
 
+let rec print_layout (layout:layout) : unit = 
+  begin match layout with
+    | [] -> ()
+    | (uid, _)::t -> Printf.printf "%s\n" uid; print_layout t
+  end
+
 (* To do: 1. Save Caller, Callee registers, possibly change arg_loc *)
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let init_stack_frame_stream = 
@@ -536,7 +566,10 @@ let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let layout = stack_layout f in
   let copy_param_stream =  copy_parameter f.param layout callee_save_stream 0 in
   let fbody = alloc_cfg layout f.cfg in
-  let body_stream = compile_fbody tdecls fbody in 
+  let body_stream = compile_fbody tdecls fbody in
+    Printf.printf "------------ stack layout ------------------\n";
+    print_layout layout;
+    Printf.printf "--------------------------------------------\n"; 
     body_stream @ copy_param_stream
 
   

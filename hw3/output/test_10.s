@@ -11,6 +11,9 @@ main:
 	pushq	%r15
 	pushq	%rdi
 	pushq	%rsi
+	jmp	end
+	.text
+_end:
 	movq	-40(%rbp), %r15
 	movq	-32(%rbp), %r14
 	movq	-24(%rbp), %r13
