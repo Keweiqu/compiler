@@ -32,7 +32,7 @@ let exec_e2e_ast ll_ast args extra_files =
   let _ = Driver.write_file dot_s_file asm_str in
   let _ = Platform.link (dot_s_file::extra_files) exec_file in
   let result = Driver.run_executable args exec_file in
-  let _ = Platform.sh (Printf.sprintf "rm -f %s %s" dot_s_file exec_file) Platform.ignore_error in
+  (* let _ = Platform.sh (Printf.sprintf "rm -f %s %s" dot_s_file exec_file) Platform.ignore_error in *)
   let _ = Platform.verb @@ Printf.sprintf "** Executable exited with: %d\n" result in
   Int64.of_int result
   
@@ -53,7 +53,7 @@ let io_test path args =
   let _ = Platform.link (dot_s_file::["cinterop.c"]) exec_file in
   let args = String.concat " " args in
   let result = Driver.run_program args exec_file tmp_file in
-  let _ = Platform.sh (Printf.sprintf "rm -f %s %s %s" dot_s_file exec_file tmp_file) Platform.ignore_error in
+  (* let _ = Platform.sh (Printf.sprintf "rm -f %s %s %s" dot_s_file exec_file tmp_file) Platform.ignore_error in *)
   let _ = Platform.verb @@ Printf.sprintf "** Executable output:\n%s\n" result in
   result
 
@@ -68,7 +68,7 @@ let c_link_test c_files path args =
   let _ = Platform.link (dot_s_file::c_files) exec_file in
   let args = String.concat " " args in
   let result = Driver.run_executable args exec_file in
-  let _ = Platform.sh (Printf.sprintf "rm -f %s %s" dot_s_file exec_file) Platform.ignore_error in
+  (* let _ = Platform.sh (Printf.sprintf "rm -f %s %s" dot_s_file exec_file) Platform.ignore_error in *)
     Int64.of_int result
 
 let executed tests =
@@ -114,7 +114,7 @@ let memory_tests =
   ]
 
 let terminator_tests =
-  [ "llprograms/returnvoid.ll", 0L
+  [ "llprograms/return.ll", 0L
   ; "llprograms/return42.ll", 42L
   ; "llprograms/br1.ll", 9L
   ; "llprograms/br2.ll", 17L    

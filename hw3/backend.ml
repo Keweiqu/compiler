@@ -193,8 +193,8 @@ let compile_operand (operand:Alloc.operand) : X86.operand =
 
 let compile_binop (loc:Alloc.loc) (bop, ty, operand1, operand2: (bop * ty * Alloc.operand * Alloc.operand)) : x86stream =
   let move_operands = [
-                        I (Movq, [(compile_operand operand2); Reg R11]);
-                        I (Movq, [(compile_operand operand1); Reg Rcx]);
+                        I (Movq, [(compile_operand operand1); Reg R11]);
+                        I (Movq, [(compile_operand operand2); Reg Rcx]);
                       ] in
   let perform_binop =  begin match bop with
     | Ll.Add -> [I (Addq, [Reg Rcx; Reg R11])]
@@ -216,6 +216,26 @@ let compile_binop (loc:Alloc.loc) (bop, ty, operand1, operand2: (bop * ty * Allo
     end in
   move_to_loc @ perform_binop @ move_operands
 
+let compile_br (loc:Alloc.loc) : x86stream = 
+  Printf.printf "in compile_br\n";
+  begin match loc with
+    | Alloc.LLbl s -> Printf.printf "%s\n" s
+    | _ -> ()
+  end;
+  [I (Jmp, [compile_operand (Alloc.Loc loc)])]
+
+let map_cnd (cnd:Ll.cnd): X86.cnd = 
+  begin match cnd with
+    | Ll.Eq -> X86.Eq
+    | Ll.Ne -> X86.Neq
+    | Ll.Slt -> X86.Lt
+    | Ll.Sle -> X86.Le
+    | Ll.Sgt -> X86.Gt
+    | Ll.Sge -> X86.Ge
+  end
+
+let compile_icmp (loc:Alloc.loc) ((c, t, op1, op2):(Ll.cnd * ty * Alloc.operand * Alloc.operand)) : x86stream = 
+  [I (Set (map_cnd c), [compile_operand (Alloc.Loc loc)]);I (Cmpq, [compile_operand op1; compile_operand op2]); I (Movq, [Imm (Lit 0L); compile_operand (Alloc.Loc loc)])]
 
 
 (* compiling call  ---------------------------------------------------------- *)
@@ -260,7 +280,7 @@ let compile_return (loc: Alloc.loc) (insn: Alloc.insn) (cur_stream:x86stream) : 
     end in
   let restore_rbp_rsp_stream = 
     (I (Movq, [Ind2 Rbp; Reg Rbp])) ::
-    (* (I (Subq, [Imm (Lit 8L); Reg Rsp])) :: *)
+    (I (Addq, [Imm (Lit 8L); Reg Rsp])) ::
     (I (Movq, [Reg Rbp; Reg Rsp])) ::
     put_to_rax_stream in
       (I (Retq, [])) :: restore_rbp_rsp_stream
@@ -377,8 +397,12 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
   let step_helper (acc: x86stream) (ins: (Alloc.loc * Alloc.insn)) : x86stream =
     let loc, insn = ins in
       begin match insn with
+        | Alloc.ILbl -> []
         | Alloc.Ret _ -> compile_return loc insn acc
         | Alloc.Binop (b, t, op1, op2) -> compile_binop loc (b, t, op1, op2)
+        | Alloc.Br loc1 -> Printf.printf "match br\n"; compile_br loc1
+        | Alloc.Icmp (c, t, op1, op2) -> compile_icmp loc (c, t, op1, op2)
+        | Alloc.Cbr (c, loc1, loc2) -> failwith "cbr Not implemented"
         | _ -> failwith "Not implemented"
       end in
   List.fold_left step_helper [] af
@@ -502,13 +526,17 @@ let callee_save_regs (cur_86stream: x86stream) : x86stream =
 
 (* To do: 1. Save Caller, Callee registers, possibly change arg_loc *)
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
-  let init_stack_frame_stream = [I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L (g,true)] in
+  let init_stack_frame_stream = 
+    if g = "main" then
+      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L (g,true)]
+    else
+      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)]
+  in
   let callee_save_stream = callee_save_regs init_stack_frame_stream in
   let layout = stack_layout f in
   let copy_param_stream =  copy_parameter f.param layout callee_save_stream 0 in
   let fbody = alloc_cfg layout f.cfg in
   let body_stream = compile_fbody tdecls fbody in 
-    Printf.printf "%B\n" (layout = []);
     body_stream @ copy_param_stream
 
   
