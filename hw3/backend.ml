@@ -181,13 +181,13 @@ let compile_operand (operand:Alloc.operand) : X86.operand =
   begin match operand with
     | Alloc.Null -> Imm (Lit 0L)
     | Alloc.Const c -> Imm (Lit c)
-    | Alloc.Gid lbl -> Imm (Lbl lbl)
+    | Alloc.Gid lbl -> Imm (Lbl (Platform.mangle lbl))
     | Alloc.Loc loc -> 
       begin match loc with
         | Alloc.LVoid -> raise (Invalid_argument "operand is LVoid")
         | Alloc.LReg reg -> Ind2 reg
         | Alloc.LStk x -> Ind3 (Lit (Int64.of_int x), Rbp)
-        | Alloc.LLbl lbl -> Imm (Lbl lbl) 
+        | Alloc.LLbl lbl -> Imm (Lbl (Platform.mangle lbl))
       end
   end
 
@@ -558,7 +558,7 @@ let rec print_layout (layout:layout) : unit =
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let init_stack_frame_stream = 
     if g = "main" then
-      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L (g,true)]
+      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L (g, true)]
     else
       [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)]
   in
