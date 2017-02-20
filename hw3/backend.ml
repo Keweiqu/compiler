@@ -235,7 +235,19 @@ let map_cnd (cnd:Ll.cnd): X86.cnd =
   end
 
 let compile_icmp (loc:Alloc.loc) ((c, t, op1, op2):(Ll.cnd * ty * Alloc.operand * Alloc.operand)) : x86stream = 
-  [I (Set (map_cnd c), [compile_operand (Alloc.Loc loc)]);I (Cmpq, [compile_operand op1; compile_operand op2]); I (Movq, [Imm (Lit 0L); compile_operand (Alloc.Loc loc)])]
+  [
+    I (Set (map_cnd c), [compile_operand (Alloc.Loc loc)]);
+    I (Cmpq, [compile_operand op2; Reg R11]);
+    I (Movq, [compile_operand op1; Reg R11]);
+    I (Movq, [Imm (Lit 0L); compile_operand (Alloc.Loc loc)])
+  ]
+
+let compile_cbr ((operand, loc1, loc2): (Alloc.operand * Alloc.loc * Alloc.loc)) : x86stream = 
+  [
+    I (J Neq, [compile_operand (Alloc.Loc loc1)]);
+    I (J Eq, [compile_operand (Alloc.Loc loc2)]);
+    I (Cmpq, [Imm (Lit 0L); (compile_operand operand)])
+  ]
 
 
 (* compiling call  ---------------------------------------------------------- *)
@@ -332,6 +344,32 @@ let rec size_ty tdecls t : int =
     | Namedt tid -> size_ty tdecls (find_type_alias tdecls tid)
   end
 
+
+let compile_alloca (loc:Alloc.loc) tdecls (t:ty) : x86stream =
+  [
+    I (Addq, [Imm (Lit (Int64.of_int (size_ty tdecls t))); Reg Rsp]);
+    I (Movq, [Reg Rsp; compile_operand (Alloc.Loc loc)])
+  ]
+
+
+let rec compile_store tdecls ((t, op1, op2): (ty * Alloc.operand * Alloc.operand)) : x86stream = 
+  begin match t with
+    | Void | I8 | Fun _ -> raise (Invalid_argument "not a valid store operand")
+    | I1 | I64 | Ptr _ -> [I (Movq, [compile_operand op1; compile_operand op2])]
+    | Struct t_list -> failwith "unimplemented"
+
+    (*
+      let helper (acc:int) (t:ty) : int =
+        acc + (size_ty tdecls t)
+      in List.fold_left helper 0 t_list
+    *)
+    | Array (size, elem) -> failwith "unimplemented"
+      (* let rec mov_arr_helper (size:int) *) 
+    | Namedt tid -> 
+      let new_t = find_type_alias tdecls tid in
+        compile_store tdecls (new_t, op1, op2)
+  end
+
 (* Generates code that computes a pointer value.  
 
    1. o must be a pointer of type t=*t'
@@ -422,11 +460,12 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
             | Alloc.LLbl lbl -> (L (lbl, false)) :: acc
             | _ -> raise (Failure "not a label")
           end
-        | Alloc.Ret _ -> compile_return loc insn acc
         | Alloc.Binop (b, t, op1, op2) -> (compile_binop loc (b, t, op1, op2)) @ acc
-        | Alloc.Br loc1 -> Printf.printf "match br\n"; (compile_br loc1) @ acc
+        | Alloc.Alloca t -> (compile_alloca loc tdecls t) @ acc
+        | Alloc.Ret _ -> compile_return loc insn acc
+        | Alloc.Br loc1 -> (compile_br loc1) @ acc
         | Alloc.Icmp (c, t, op1, op2) -> (compile_icmp loc (c, t, op1, op2)) @ acc
-        | Alloc.Cbr (c, loc1, loc2) -> failwith "cbr Not implemented"
+        | Alloc.Cbr (operand, loc1, loc2) -> (compile_cbr (operand, loc1, loc2)) @ acc
         | _ -> failwith "Not implemented"
       end in
   List.fold_left step_helper [] af
@@ -475,10 +514,9 @@ let rec param_layout_helper (offset:int) (acc:layout) (params:uid list) : (layou
     | h::t -> param_layout_helper (offset - 8) ((h, Alloc.LStk offset) :: acc) t
   end
 
-let stack_layout (f:Ll.fdecl) : layout =
+let stack_layout (f:Ll.fdecl) : (layout * int) =
   let layout, offset = param_layout_helper (-48) [] f.param in
-  let layout1, _ = cfg_layout_helper offset layout f.cfg in
-    layout1
+    cfg_layout_helper offset layout f.cfg
 
 
 (* The code for the entry-point of a function must do several things:
@@ -563,14 +601,20 @@ let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
       [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)]
   in
   let callee_save_stream = callee_save_regs init_stack_frame_stream in
-  let layout = stack_layout f in
+  let layout, offset = stack_layout f in
   let copy_param_stream =  copy_parameter f.param layout callee_save_stream 0 in
   let fbody = alloc_cfg layout f.cfg in
   let body_stream = compile_fbody tdecls fbody in
+  (*
     Printf.printf "------------ stack layout ------------------\n";
     print_layout layout;
     Printf.printf "--------------------------------------------\n"; 
-    body_stream @ copy_param_stream
+   *)
+    body_stream @ 
+    [I (Addq, [Imm (Lit (Int64.of_int offset)); Reg Rsp])] @
+    [I (Movq, [Reg Rbp; Reg Rsp])] @
+    copy_param_stream
+   
 
   
 
