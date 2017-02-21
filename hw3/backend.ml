@@ -404,7 +404,8 @@ let rec compile_store tdecls ((t, op1, op2): (ty * Alloc.operand * Alloc.operand
     | Void | I8 | Fun _ | Struct _ | Array _ -> raise (Invalid_argument "invalid store operand")
     | I1 | I64 | Ptr _ -> 
       [
-        I (Movq, [Reg R11; compile_operand op2]);
+        I (Movq, [Reg R11; Ind2 Rcx]);
+        I (Movq, [compile_operand op2; Reg Rcx]);
         I (Movq, [compile_operand op1; Reg R11])
       ]
     | Namedt tid -> 
@@ -414,18 +415,13 @@ let rec compile_store tdecls ((t, op1, op2): (ty * Alloc.operand * Alloc.operand
 
 let rec compile_load tdecls (loc:Alloc.loc) ((t, op):(ty * Alloc.operand)) : x86stream =
   let x86_op = compile_operand op in
-  let load_op = 
-    begin match x86_op with
-      | Imm x -> Ind1 x
-      | Reg r -> Ind2 r
-      | x -> x
-    end in
   begin match t with
     | Void | I8 | Fun _ | Struct _ | Array _ -> raise (Invalid_argument "invalid load operand")
     | I1 | I64 | Ptr _ -> 
       [
         I (Movq, [Reg R11; compile_operand (Alloc.Loc loc)]);
-        I (Movq, [load_op; Reg R11])
+        I (Movq, [Ind2 Rcx; Reg R11]);
+        I (Movq, [x86_op; Reg Rcx])
       ]
     | Namedt tid -> 
       let new_t = find_type_alias tdecls tid in
@@ -460,34 +456,73 @@ let rec compile_load tdecls (loc:Alloc.loc) ((t, op):(ty * Alloc.operand)) : x86
       by the path so far
 *)
 
+let rec struct_offset (acc:x86stream) tdecls (ts: (Ll.ty list)) (idx:int) : (x86stream * ty) =
+  if idx = 0 then
+    begin match ts with
+      | [] -> raise (Invalid_argument "index point to empty")
+      | h::_ -> (acc , h)
+    end
+  else
+    begin match ts with
+    | [] -> raise (Invalid_argument "struct has no more fields")
+    | h::t -> struct_offset ( (I (Addq, [Imm (Lit (Int64.of_int (size_ty tdecls h))); Reg R14])) :: acc) tdecls t (idx -1)
+  end
+
+let rec offset (acc:x86stream) tdecls (t:Ll.ty) (os: Alloc.operand list) : (x86stream * ty) =
+  begin match os with
+    | [] -> (acc, t)
+    | h::tail -> 
+      begin match h with
+        | Alloc.Const x -> 
+          begin match t with 
+            | Struct ts -> 
+              let soff, new_t = struct_offset acc tdecls ts (Int64.to_int x) in
+              offset soff tdecls new_t tail
+            | Array (_, ty) -> offset 
+              ([ 
+                I (Addq, [Reg R11; Reg R14]);
+                I (Imulq, [Reg R10; Reg R11]);
+                I (Movq, [Imm (Lit x); Reg R11]); 
+                I (Movq, [Imm (Lit (Int64.of_int (size_ty tdecls ty))); Reg R10])
+              ] @ acc) tdecls ty tail 
+            | Void -> raise (Invalid_argument "void") 
+            | I1 -> raise (Invalid_argument "I1") 
+            | I8 -> raise (Invalid_argument "I8") 
+            | I64 -> raise (Invalid_argument "I64") 
+            | Ptr _ -> raise (Invalid_argument "ptr") 
+            | Fun _ -> raise (Invalid_argument "fun") 
+            | Namedt nt -> 
+              let new_t = find_type_alias tdecls nt in
+                offset acc tdecls new_t os
+          end
+        | _ -> raise (Invalid_argument "must be int64")
+      end
+  end
+
+
 let compile_getelementptr tdecls (t:Ll.ty) 
                           (o:Alloc.operand) (os:Alloc.operand list) : x86stream =
-  if os = [] then
-      [I (Movq, [compile_operand o; Reg R11])]     
-  else 
-    let h::tail = os in 
-    let init_offset = 
-      begin match h with
-        | Const x -> (size_ty tdecls t) * (Int64.to_int x)
-        | _ -> raise (Invalid_argument "gep op2-opn must be int64")
-      end in
-    let rec helper (acc:int) tdecls (t:Ll.ty) (os: Alloc.operand list) : int =
+  begin match t with 
+    | Ptr ty ->
       begin match os with
-        | [] -> acc
-        | h::tail -> 
-          begin match h with
-            | Const x -> 
-              begin match t with 
-                | Struct -> helper (struct_helper + acc) new_type tail
-                | Array
-                | Void | I8 | Fun _ -> raise (Invalid_argument "struct has invalid field")
-                | I1 | I64 | Ptr _ -> 8
-              end
-            | _ -> raise (Invalid_argument "must be int64")
-          end
+        | [] -> raise (Invalid_argument "os cannot be empty")
+        | h :: tail ->
+          let init_offset = 
+            begin match h with
+              | Alloc.Const x -> [ 
+                I (Addq, [Reg R11; Reg R14]);
+                I (Imulq, [Reg R10; Reg R11]);
+                I (Movq, [Imm (Lit x); Reg R11]); 
+                I (Movq, [Imm (Lit (Int64.of_int (size_ty tdecls ty))); Reg R10])
+              ]
+              | _ -> raise (Invalid_argument "gep op2-opn must be null")
+            end in
+              let off, _ = offset init_offset tdecls ty tail in
+                off @ [I (Movq, [compile_operand o; Reg R14])]
       end
-      
-
+    | _ -> raise (Invalid_argument "gep type not a pointer")
+  end
+  
 
 (* compiling instructions within function bodies ---------------------------- *)
 
@@ -567,7 +602,7 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
          [ I (Movq, [Reg R11; compile_operand (Alloc.Loc loc)]);
            I (Movq, [compile_operand op; Reg R11])] @
          acc
-        | Alloc.Gep (t, op, os) -> (compile_getelementptr tdecls t op os) @ acc
+        | Alloc.Gep (t, op, os) -> ((I (Movq, [Reg R14; compile_operand (Alloc.Loc loc)])) :: (compile_getelementptr tdecls t op os)) @ acc
         | Alloc.Cbr (operand, loc1, loc2) -> (compile_cbr (operand, loc1, loc2)) @ acc
       end in
   List.fold_left step_helper [] af
