@@ -354,20 +354,35 @@ let compile_alloca (loc:Alloc.loc) tdecls (t:ty) : x86stream =
 
 let rec compile_store tdecls ((t, op1, op2): (ty * Alloc.operand * Alloc.operand)) : x86stream = 
   begin match t with
-    | Void | I8 | Fun _ -> raise (Invalid_argument "not a valid store operand")
-    | I1 | I64 | Ptr _ -> [I (Movq, [compile_operand op1; compile_operand op2])]
-    | Struct t_list -> failwith "unimplemented"
-
-    (*
-      let helper (acc:int) (t:ty) : int =
-        acc + (size_ty tdecls t)
-      in List.fold_left helper 0 t_list
-    *)
-    | Array (size, elem) -> failwith "unimplemented"
-      (* let rec mov_arr_helper (size:int) *) 
+    | Void | I8 | Fun _ | Struct _ | Array _ -> raise (Invalid_argument "invalid store operand")
+    | I1 | I64 | Ptr _ -> 
+      [
+        I (Movq, [Reg R11; compile_operand op2]);
+        I (Movq, [compile_operand op1; Reg R11])
+      ]
     | Namedt tid -> 
       let new_t = find_type_alias tdecls tid in
         compile_store tdecls (new_t, op1, op2)
+  end
+
+let rec compile_load tdecls (loc:Alloc.loc) ((t, op):(ty * Alloc.operand)) : x86stream =
+  let x86_op = compile_operand op in
+  let load_op = 
+    begin match x86_op with
+      | Imm x -> Ind1 x
+      | Reg r -> Ind2 r
+      | x -> x
+    end in
+  begin match t with
+    | Void | I8 | Fun _ | Struct _ | Array _ -> raise (Invalid_argument "invalid load operand")
+    | I1 | I64 | Ptr _ -> 
+      [
+        I (Movq, [Reg R11; compile_operand (Alloc.Loc loc)]);
+        I (Movq, [load_op; Reg R11])
+      ]
+    | Namedt tid -> 
+      let new_t = find_type_alias tdecls tid in
+        compile_load tdecls loc (new_t, op)
   end
 
 (* Generates code that computes a pointer value.  
@@ -462,6 +477,8 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
           end
         | Alloc.Binop (b, t, op1, op2) -> (compile_binop loc (b, t, op1, op2)) @ acc
         | Alloc.Alloca t -> (compile_alloca loc tdecls t) @ acc
+        | Alloc.Store (t, op1, op2) -> (compile_store tdecls (t, op1, op2)) @ acc
+        | Alloc.Load (t, op) -> (compile_load tdecls loc (t, op)) @ acc
         | Alloc.Ret _ -> compile_return loc insn acc
         | Alloc.Br loc1 -> (compile_br loc1) @ acc
         | Alloc.Icmp (c, t, op1, op2) -> (compile_icmp loc (c, t, op1, op2)) @ acc
@@ -596,9 +613,9 @@ let rec print_layout (layout:layout) : unit =
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let init_stack_frame_stream = 
     if g = "main" then
-      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L (g, true)]
+      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); I (Movq, [Reg Rsp; Reg Rbp]); L ((Platform.mangle g), true)]
     else
-      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L (g,true)]
+      [I (Movq, [Reg Rsp; Reg Rbp]); I (Pushq, [Reg Rbp]); L ((Platform.mangle g),true)]
   in
   let callee_save_stream = callee_save_regs init_stack_frame_stream in
   let layout, offset = stack_layout f in
