@@ -271,9 +271,56 @@ let compile_cbr ((operand, loc1, loc2): (Alloc.operand * Alloc.loc * Alloc.loc))
 *)
 
 
+let caller_save_regs (cur_86stream: x86stream) : x86stream = 
+  (I (Pushq, [Reg Rcx])) ::
+  (I (Pushq, [Reg Rdx])) ::
+  (I (Pushq, [Reg Rsi])) :: 
+  (I (Pushq, [Reg Rdi])) :: 
+  (I (Pushq, [Reg R08])) :: 
+  (I (Pushq, [Reg R09])) :: 
+  (I (Pushq, [Reg R10])) ::
+  (I (Pushq, [Reg R11])) :: 
+  cur_86stream
+
+let rec put_args (os: (ty * Alloc.operand) list) (idx: int) (cur_86stream: x86stream) : x86stream =
+  begin match os with
+    | [] -> cur_86stream
+    | (_, op)::tail ->
+      begin match idx with
+        | 0 -> put_args tail (idx + 1) 
+                        (I (Movq, [compile_operand op; Reg Rdi])::cur_86stream)
+        | 1 -> put_args tail (idx + 1) 
+                        (I (Movq, [compile_operand op; Reg Rsi])::cur_86stream)
+        | 2 -> put_args tail (idx + 1) 
+                        (I (Movq, [compile_operand op; Reg Rdx])::cur_86stream)
+        | 3 -> put_args tail (idx + 1) 
+                        (I (Movq, [compile_operand op; Reg Rcx])::cur_86stream)
+        | 4 -> put_args tail (idx + 1) 
+                        (I (Movq, [compile_operand op; Reg R08])::cur_86stream)
+        | 5 -> put_args tail (idx + 1) 
+                        (I (Movq, [compile_operand op; Reg R09])::cur_86stream)
+        | x -> put_args tail (idx + 1) 
+                        (I (Pushq, [compile_operand op])::cur_86stream)
+      end
+  end 
+
+let clean_restore_caller_regs (arg_length: int) (cur_86stream:x86stream) : x86stream =
+  (I (Movq, [Ind3 (Lit (-64L), Rsp);Reg Rcx])) ::
+  (I (Movq, [Ind3 (Lit (-56L), Rsp);Reg Rdx])) ::
+  (I (Movq, [Ind3 (Lit (-48L), Rsp);Reg Rsi])) :: 
+  (I (Movq, [Ind3 (Lit (-40L), Rsp);Reg Rdi])) :: 
+  (I (Movq, [Ind3 (Lit (-32L), Rsp);Reg R08])) :: 
+  (I (Movq, [Ind3 (Lit (-24L), Rsp);Reg R09])) :: 
+  (I (Movq, [Ind3 (Lit (-16L), Rsp);Reg R10])) ::
+  (I (Movq, [Ind3 (Lit (-8L), Rsp); Reg R11])) ::
+  (I (Addq, [Imm (Lit (Int64.of_int ((arg_length - 6 + 8) * 8))); Reg Rsp])) ::
+  cur_86stream
 
 let compile_call (fo:Alloc.operand) (os:(ty * Alloc.operand) list) : x86stream = 
-failwith "compile_call unimplemented"
+  let caller_save_stream = caller_save_regs [] in
+  let save_args_stream = put_args os 0 caller_save_stream in
+  let call_callee = (I (Callq, [compile_operand fo])) :: save_args_stream in
+    clean_restore_caller_regs (List.length os) call_callee
 
 
 let compile_return (loc: Alloc.loc) (insn: Alloc.insn) (cur_stream:x86stream) : x86stream = 
@@ -415,7 +462,32 @@ let rec compile_load tdecls (loc:Alloc.loc) ((t, op):(ty * Alloc.operand)) : x86
 
 let compile_getelementptr tdecls (t:Ll.ty) 
                           (o:Alloc.operand) (os:Alloc.operand list) : x86stream =
-failwith " unimplemented"
+  if os = [] then
+      [I (Movq, [compile_operand o; Reg R11])]     
+  else 
+    let h::tail = os in 
+    let init_offset = 
+      begin match h with
+        | Const x -> (size_ty tdecls t) * (Int64.to_int x)
+        | _ -> raise (Invalid_argument "gep op2-opn must be int64")
+      end in
+    let rec helper (acc:int) tdecls (t:Ll.ty) (os: Alloc.operand list) : int =
+      begin match os with
+        | [] -> acc
+        | h::tail -> 
+          begin match h with
+            | Const x -> 
+              begin match t with 
+                | Struct -> helper (struct_helper + acc) new_type tail
+                | Array
+                | Void | I8 | Fun _ -> raise (Invalid_argument "struct has invalid field")
+                | I1 | I64 | Ptr _ -> 8
+              end
+            | _ -> raise (Invalid_argument "must be int64")
+          end
+      end
+      
+
 
 (* compiling instructions within function bodies ---------------------------- *)
 
@@ -467,7 +539,7 @@ failwith " unimplemented"
 *)
 
 let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
-  let step_helper (acc: x86stream) (ins: (Alloc.loc * Alloc.insn)) : x86stream =
+  let rec step_helper (acc: x86stream) (ins: (Alloc.loc * Alloc.insn)) : x86stream =
     let loc, insn = ins in
       begin match insn with
         | Alloc.ILbl -> 
@@ -482,8 +554,21 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
         | Alloc.Ret _ -> compile_return loc insn acc
         | Alloc.Br loc1 -> (compile_br loc1) @ acc
         | Alloc.Icmp (c, t, op1, op2) -> (compile_icmp loc (c, t, op1, op2)) @ acc
+        | Alloc.Call (t, fo, os) ->
+          begin match t with
+            | Ll.Void -> (compile_call fo os) @ acc
+            | I1 | I64 | Ptr _ -> ((I (Movq, [Reg Rax; compile_operand (Alloc.Loc loc)])) :: (compile_call fo os)) @ acc
+            | Struct _ | Array _ | Fun _ | I8 -> raise (Invalid_argument "invalid call arg")
+            | Namedt nt -> 
+              let new_t = find_type_alias tdecls nt in
+                step_helper acc (loc, Alloc.Call (new_t, fo, os))
+          end
+        | Alloc.Bitcast (t1, op, t2) -> 
+         [ I (Movq, [Reg R11; compile_operand (Alloc.Loc loc)]);
+           I (Movq, [compile_operand op; Reg R11])] @
+         acc
+        | Alloc.Gep (t, op, os) -> (compile_getelementptr tdecls t op os) @ acc
         | Alloc.Cbr (operand, loc1, loc2) -> (compile_cbr (operand, loc1, loc2)) @ acc
-        | _ -> failwith "Not implemented"
       end in
   List.fold_left step_helper [] af
 
