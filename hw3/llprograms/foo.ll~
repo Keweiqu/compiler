@@ -1,0 +1,24 @@
+define i64 @mod(i64 %m, i64 %n) {
+cmp:
+  %res = icmp slt i64 %m, %n
+  br i1 %res, label %exit, label %subtract
+subtract:
+  %m = sub i64 %m, %n
+  br label %cmp  
+exit:
+  ret i64 %m
+}
+
+define i64 @gcd(i64 %m, i64 %n) {
+  %remainder = call i64 @mod(i64 %m, i64 %n)
+  %flag = icmp eq %remainder, 0
+  br label %exit1
+exit1:
+  ret i64 %n
+}
+
+
+define i64 @main(i64 %argc, i8** %arcv) {
+  %1 = call i64 @gcd(i64 4, i64 2)
+  ret i64 %1
+}

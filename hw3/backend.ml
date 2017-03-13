@@ -217,11 +217,6 @@ let compile_binop (loc:Alloc.loc) (bop, ty, operand1, operand2: (bop * ty * Allo
   move_to_loc @ perform_binop @ move_operands
 
 let compile_br (loc:Alloc.loc) : x86stream = 
-  Printf.printf "in compile_br\n";
-  begin match loc with
-    | Alloc.LLbl s -> Printf.printf "%s\n" s
-    | _ -> ()
-  end;
   [I (Jmp, [compile_operand (Alloc.Loc loc)])]
 
 let map_cnd (cnd:Ll.cnd): X86.cnd = 
@@ -472,30 +467,30 @@ let rec offset (acc:x86stream) tdecls (t:Ll.ty) (os: Alloc.operand list) : (x86s
   begin match os with
     | [] -> (acc, t)
     | h::tail -> 
-      begin match h with
-        | Alloc.Const x -> 
-          begin match t with 
-            | Struct ts -> 
+      begin match t with 
+        | Struct ts ->
+          begin match h with
+            | Alloc.Const x ->
               let soff, new_t = struct_offset acc tdecls ts (Int64.to_int x) in
               offset soff tdecls new_t tail
-            | Array (_, ty) -> offset 
-              ([ 
-                I (Addq, [Reg R11; Reg R14]);
-                I (Imulq, [Reg R10; Reg R11]);
-                I (Movq, [Imm (Lit x); Reg R11]); 
-                I (Movq, [Imm (Lit (Int64.of_int (size_ty tdecls ty))); Reg R10])
-              ] @ acc) tdecls ty tail 
-            | Void -> raise (Invalid_argument "void") 
+            | _ -> raise (Invalid_argument "index into struct should be int64")
+          end
+        | Array (_, ty) -> offset 
+          ([ 
+             I (Addq, [Reg R11; Reg R14]);
+             I (Imulq, [Reg R10; Reg R11]);
+             I (Movq, [compile_operand h; Reg R11]); 
+             I (Movq, [Imm (Lit (Int64.of_int (size_ty tdecls ty))); Reg R10])
+            ] @ acc) tdecls ty tail 
+        | Namedt nt -> 
+          let new_t = find_type_alias tdecls nt in
+            offset acc tdecls new_t os
+        | Void -> raise (Invalid_argument "void") 
             | I1 -> raise (Invalid_argument "I1") 
             | I8 -> raise (Invalid_argument "I8") 
             | I64 -> raise (Invalid_argument "I64") 
             | Ptr _ -> raise (Invalid_argument "ptr") 
             | Fun _ -> raise (Invalid_argument "fun") 
-            | Namedt nt -> 
-              let new_t = find_type_alias tdecls nt in
-                offset acc tdecls new_t os
-          end
-        | _ -> raise (Invalid_argument "must be int64")
       end
   end
 
@@ -509,13 +504,14 @@ let compile_getelementptr tdecls (t:Ll.ty)
         | h :: tail ->
           let init_offset = 
             begin match h with
-              | Alloc.Const x -> [ 
+              | Alloc.Null -> raise (Invalid_argument "gep op2-opn must not be null")
+              | _ -> [ 
                 I (Addq, [Reg R11; Reg R14]);
                 I (Imulq, [Reg R10; Reg R11]);
-                I (Movq, [Imm (Lit x); Reg R11]); 
+                I (Movq, [compile_operand h; Reg R11]); 
                 I (Movq, [Imm (Lit (Int64.of_int (size_ty tdecls ty))); Reg R10])
               ]
-              | _ -> raise (Invalid_argument "gep op2-opn must be null")
+
             end in
               let off, _ = offset init_offset tdecls ty tail in
                 off @ [I (Movq, [compile_operand o; Reg R14])]
@@ -742,11 +738,6 @@ let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let copy_param_stream =  copy_parameter f.param layout callee_save_stream 0 in
   let fbody = alloc_cfg layout f.cfg in
   let body_stream = compile_fbody tdecls fbody in
-  (*
-    Printf.printf "------------ stack layout ------------------\n";
-    print_layout layout;
-    Printf.printf "--------------------------------------------\n"; 
-   *)
     body_stream @ 
     [I (Addq, [Imm (Lit (Int64.of_int offset)); Reg Rsp])] @
     [I (Movq, [Reg Rbp; Reg Rsp])] @
