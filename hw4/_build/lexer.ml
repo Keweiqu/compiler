@@ -38,8 +38,8 @@
   ("var", VAR);
   ("global", GLOBAL);
   ("bool", TBOOL);
-  ("true", TRUE);
-  ("false", FALSE);
+  ("true", TRUE true);
+  ("false", FALSE false);
 
   (* Symbols *)
   ( ";", SEMI);
