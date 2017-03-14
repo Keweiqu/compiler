@@ -15,10 +15,13 @@ let loc (startpos:Lexing.position) (endpos:Lexing.position) (elt:'a) : 'a node =
 %token TINT     /* int */
 %token TVOID    /* void */
 %token TSTRING  /* string */
+%token TBOOL    /* bool */
 %token IF       /* if */
 %token ELSE     /* else */
 %token WHILE    /* while */
 %token RETURN   /* return */
+%token <bool> TRUE     /* true */
+%token <bool> FALSE    /* false */
 %token VAR      /* var */
 %token SEMI     /* ; */
 %token COMMA    /* , */
@@ -36,8 +39,20 @@ let loc (startpos:Lexing.position) (endpos:Lexing.position) (elt:'a) : 'a node =
 %token TILDE    /* ~ */
 %token BANG     /* ! */
 %token GLOBAL   /* global */
+%token LSHIFT   /* << */
+%token RSHIFT   /* >> */
+%token RSHIFTL  /* >>> */
+%token LT       /* < */
+%token LEQ      /* <= */
+%token GT       /* > */
+%token GEQ      /* >= */
+%token NEQ      /* != */
+%token AND      /* & */
+%token OR       /* | */
+%token BITAND   /* [&] */
+%token BITOR    /* [|] */
 
-                       
+  
 
 %left PLUS DASH
 %left STAR
@@ -95,6 +110,18 @@ rtyp:
   | DASH   { Sub }
   | STAR   { Mul }
   | EQEQ   { Eq } 
+  | LSHIFT { Shl }
+  | RSHIFT { Sar }
+  | RSHIFTL { Shr }
+  | LT { Lt }
+  | LEQ { Lte }
+  | GT { Gt }
+  | GEQ { Gte }
+  | NEQ { Neq }
+  | AND { And }
+  | OR { Or }
+  | BITAND { IAnd }
+  | BITOR { IOr }
 
 %inline uop:
   | DASH  { Neg }
@@ -104,6 +131,8 @@ rtyp:
 gexp:
   | t=ty NULL  { loc $startpos $endpos @@ CNull t }
   | i=INT      { loc $startpos $endpos @@ CInt i } 
+  | t=TRUE { loc $startpos $endpos @@ CBool t } 
+  | f=FALSE { loc $startpos $endpos @@ CBool f }
 
 lhs:  
   | id=IDENT            { loc $startpos $endpos @@ Id id }
@@ -119,7 +148,11 @@ exp:
                         { loc $startpos $endpos @@ Index (e, i) }
   | id=IDENT LPAREN es=separated_list(COMMA, exp) RPAREN
                         { loc $startpos $endpos @@ Call (id,es) }
-  | LPAREN e=exp RPAREN { e } 
+  | LPAREN e=exp RPAREN { e }
+  | t=TRUE { loc $startpos $endpos @@ CBool t } 
+  | f=FALSE { loc $startpos $endpos @@ CBool f }
+  | g=gexp { g }
+  | l=lhs { l }  
 
 vdecl:
   | VAR id=IDENT EQ init=exp { (id, init) }
