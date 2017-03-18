@@ -32,13 +32,15 @@
   ("string", TSTRING);
   ("else", ELSE);
   ("if", IF);
+  ("new", NEW);
   ("while", WHILE);
+  ("for", FOR);
   ("return", RETURN);
   ("var", VAR);
   ("global", GLOBAL);
   ("bool", TBOOL);
-  ("true", TRUE true);
-  ("false", FALSE false);
+  ("true", BOOL true);
+  ("false", BOOL false);
 
   (* Symbols *)
   ( ";", SEMI);
@@ -57,8 +59,8 @@
   ( "[", LBRACKET);
   ( "]", RBRACKET);
   ( "<<", LSHIFT);
-  ( ">>", RSHIFT);
-  ( ">>>", RSHIFTL);
+  ( ">>", RSHIFTL);
+  ( ">>>", RSHIFT);
   ( "<", LT);
   ( "<=", LEQ);
   ( ">", GT);

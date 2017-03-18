@@ -33,13 +33,15 @@
   ("string", TSTRING);
   ("else", ELSE);
   ("if", IF);
+  ("new", NEW);
   ("while", WHILE);
+  ("for", FOR);
   ("return", RETURN);
   ("var", VAR);
   ("global", GLOBAL);
   ("bool", TBOOL);
-  ("true", TRUE true);
-  ("false", FALSE false);
+  ("true", BOOL true);
+  ("false", BOOL false);
 
   (* Symbols *)
   ( ";", SEMI);
@@ -58,8 +60,8 @@
   ( "[", LBRACKET);
   ( "]", RBRACKET);
   ( "<<", LSHIFT);
-  ( ">>", RSHIFT);
-  ( ">>>", RSHIFTL);
+  ( ">>", RSHIFTL);
+  ( ">>>", RSHIFT);
   ( "<", LT);
   ( "<=", LEQ);
   ( ">", GT);
@@ -118,7 +120,7 @@ let (symbol_table : (string, Parser.token) Hashtbl.t) = Hashtbl.create 1024
   (* Lexing directives *)
   let lnum = ref 1
 
-# 122 "lexer.ml"
+# 124 "lexer.ml"
 let __ocaml_lex_tables = {
   Lexing.lex_base = 
    "\000\000\246\255\247\255\002\000\005\000\008\000\006\000\007\000\
@@ -305,62 +307,62 @@ let rec token lexbuf =
 and __ocaml_lex_token_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
-# 131 "lexer.mll"
+# 133 "lexer.mll"
         ( EOF )
-# 311 "lexer.ml"
+# 313 "lexer.ml"
 
   | 1 ->
-# 133 "lexer.mll"
+# 135 "lexer.mll"
          ( start_lex := start_pos_of_lexbuf lexbuf; comments 0 lexbuf )
-# 316 "lexer.ml"
+# 318 "lexer.ml"
 
   | 2 ->
-# 134 "lexer.mll"
+# 136 "lexer.mll"
         ( reset_str(); start_lex := start_pos_of_lexbuf lexbuf; string false lexbuf )
-# 321 "lexer.ml"
+# 323 "lexer.ml"
 
   | 3 ->
-# 135 "lexer.mll"
+# 137 "lexer.mll"
         ( let p = lexeme_start_p lexbuf in
           if p.pos_cnum - p.pos_bol = 0 then directive 0 lexbuf 
           else raise (Lexer_error (lex_long_range lexbuf,
             Printf.sprintf "# can only be the 1st char in a line.")) )
-# 329 "lexer.ml"
+# 331 "lexer.ml"
 
   | 4 ->
-# 140 "lexer.mll"
+# 142 "lexer.mll"
                                          ( create_token lexbuf )
-# 334 "lexer.ml"
+# 336 "lexer.ml"
 
   | 5 ->
-# 141 "lexer.mll"
+# 143 "lexer.mll"
                             ( INT (Int64.of_string (lexeme lexbuf)) )
-# 339 "lexer.ml"
+# 341 "lexer.ml"
 
   | 6 ->
-# 142 "lexer.mll"
+# 144 "lexer.mll"
                 ( token lexbuf )
-# 344 "lexer.ml"
+# 346 "lexer.ml"
 
   | 7 ->
-# 143 "lexer.mll"
+# 145 "lexer.mll"
             ( newline lexbuf; token lexbuf )
-# 349 "lexer.ml"
+# 351 "lexer.ml"
 
   | 8 ->
-# 148 "lexer.mll"
+# 150 "lexer.mll"
     ( create_token lexbuf )
-# 354 "lexer.ml"
+# 356 "lexer.ml"
 
   | 9 ->
 let
-# 150 "lexer.mll"
+# 152 "lexer.mll"
          c
-# 360 "lexer.ml"
+# 362 "lexer.ml"
 = Lexing.sub_lexeme_char lexbuf lexbuf.Lexing.lex_start_pos in
-# 150 "lexer.mll"
+# 152 "lexer.mll"
            ( unexpected_char lexbuf c )
-# 364 "lexer.ml"
+# 366 "lexer.ml"
 
   | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
       __ocaml_lex_token_rec lexbuf __ocaml_lex_state
@@ -370,22 +372,22 @@ and directive state lexbuf =
 and __ocaml_lex_directive_rec state lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
-# 153 "lexer.mll"
+# 155 "lexer.mll"
                 ( directive state lexbuf )
-# 376 "lexer.ml"
+# 378 "lexer.ml"
 
   | 1 ->
-# 154 "lexer.mll"
+# 156 "lexer.mll"
            ( if state = 0 then 
                (lnum := int_of_string (lexeme lexbuf); 
                 directive 1 lexbuf)
              else if state = 2 then directive 3 lexbuf
              else raise (Lexer_error (lex_long_range lexbuf,
                Printf.sprintf "Illegal directives")) )
-# 386 "lexer.ml"
+# 388 "lexer.ml"
 
   | 2 ->
-# 160 "lexer.mll"
+# 162 "lexer.mll"
         ( if state = 1 then
             begin
               reset_str(); 
@@ -395,10 +397,10 @@ and __ocaml_lex_directive_rec state lexbuf __ocaml_lex_state =
           else raise (Lexer_error (lex_long_range lexbuf,
             Printf.sprintf "Illegal directives")) 
          )
-# 399 "lexer.ml"
+# 401 "lexer.ml"
 
   | 3 ->
-# 169 "lexer.mll"
+# 171 "lexer.mll"
             ( if state = 2 || state = 3 then
                 begin 
                   reset_lexbuf (get_str()) !lnum lexbuf;
@@ -406,13 +408,13 @@ and __ocaml_lex_directive_rec state lexbuf __ocaml_lex_state =
                 end 
               else raise (Lexer_error (lex_long_range lexbuf,
                 Printf.sprintf "Illegal directives")) )
-# 410 "lexer.ml"
+# 412 "lexer.ml"
 
   | 4 ->
-# 176 "lexer.mll"
+# 178 "lexer.mll"
       ( raise (Lexer_error (lex_long_range lexbuf, 
           Printf.sprintf "Illegal directives")) )
-# 416 "lexer.ml"
+# 418 "lexer.ml"
 
   | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
       __ocaml_lex_directive_rec state lexbuf __ocaml_lex_state
@@ -422,31 +424,31 @@ and comments level lexbuf =
 and __ocaml_lex_comments_rec level lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
-# 180 "lexer.mll"
+# 182 "lexer.mll"
          ( if level = 0 then token lexbuf
 	   else comments (level-1) lexbuf )
-# 429 "lexer.ml"
+# 431 "lexer.ml"
 
   | 1 ->
-# 182 "lexer.mll"
+# 184 "lexer.mll"
          ( comments (level+1) lexbuf)
-# 434 "lexer.ml"
+# 436 "lexer.ml"
 
   | 2 ->
-# 183 "lexer.mll"
+# 185 "lexer.mll"
              ( comments level lexbuf )
-# 439 "lexer.ml"
+# 441 "lexer.ml"
 
   | 3 ->
-# 184 "lexer.mll"
+# 186 "lexer.mll"
          ( newline lexbuf; comments level lexbuf )
-# 444 "lexer.ml"
+# 446 "lexer.ml"
 
   | 4 ->
-# 185 "lexer.mll"
+# 187 "lexer.mll"
          ( raise (Lexer_error (lex_long_range lexbuf,
              Printf.sprintf "comments are not closed")) )
-# 450 "lexer.ml"
+# 452 "lexer.ml"
 
   | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
       __ocaml_lex_comments_rec level lexbuf __ocaml_lex_state
@@ -456,32 +458,32 @@ and string in_directive lexbuf =
 and __ocaml_lex_string_rec in_directive lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
-# 189 "lexer.mll"
+# 191 "lexer.mll"
          ( if in_directive = false then
              STRING (get_str())
            else directive 2 lexbuf )
-# 464 "lexer.ml"
+# 466 "lexer.ml"
 
   | 1 ->
-# 192 "lexer.mll"
+# 194 "lexer.mll"
          ( add_str(escaped lexbuf); string in_directive lexbuf )
-# 469 "lexer.ml"
+# 471 "lexer.ml"
 
   | 2 ->
-# 193 "lexer.mll"
+# 195 "lexer.mll"
          ( add_str '\n'; newline lexbuf; string in_directive lexbuf )
-# 474 "lexer.ml"
+# 476 "lexer.ml"
 
   | 3 ->
-# 194 "lexer.mll"
+# 196 "lexer.mll"
          ( raise (Lexer_error (lex_long_range lexbuf,
              Printf.sprintf "String is not terminated")) )
-# 480 "lexer.ml"
+# 482 "lexer.ml"
 
   | 4 ->
-# 196 "lexer.mll"
+# 198 "lexer.mll"
          ( add_str (Lexing.lexeme_char lexbuf 0); string in_directive lexbuf )
-# 485 "lexer.ml"
+# 487 "lexer.ml"
 
   | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
       __ocaml_lex_string_rec in_directive lexbuf __ocaml_lex_state
@@ -491,32 +493,32 @@ and escaped lexbuf =
 and __ocaml_lex_escaped_rec lexbuf __ocaml_lex_state =
   match Lexing.engine __ocaml_lex_tables __ocaml_lex_state lexbuf with
       | 0 ->
-# 199 "lexer.mll"
+# 201 "lexer.mll"
            ( '\n' )
-# 497 "lexer.ml"
+# 499 "lexer.ml"
 
   | 1 ->
-# 200 "lexer.mll"
+# 202 "lexer.mll"
            ( '\t' )
-# 502 "lexer.ml"
+# 504 "lexer.ml"
 
   | 2 ->
-# 201 "lexer.mll"
+# 203 "lexer.mll"
            ( '\\' )
-# 507 "lexer.ml"
+# 509 "lexer.ml"
 
   | 3 ->
-# 202 "lexer.mll"
+# 204 "lexer.mll"
            ( '\034'  )
-# 512 "lexer.ml"
+# 514 "lexer.ml"
 
   | 4 ->
-# 203 "lexer.mll"
+# 205 "lexer.mll"
            ( '\'' )
-# 517 "lexer.ml"
+# 519 "lexer.ml"
 
   | 5 ->
-# 205 "lexer.mll"
+# 207 "lexer.mll"
     (
       let x = int_of_string(lexeme lexbuf) in
       if x > 255 then
@@ -525,13 +527,13 @@ and __ocaml_lex_escaped_rec lexbuf __ocaml_lex_state =
       else
         Char.chr x
     )
-# 529 "lexer.ml"
+# 531 "lexer.ml"
 
   | 6 ->
-# 214 "lexer.mll"
+# 216 "lexer.mll"
     ( raise (Lexer_error (lex_long_range lexbuf,
         (Printf.sprintf "%s is an illegal escaped character constant" (lexeme lexbuf) ))) )
-# 535 "lexer.ml"
+# 537 "lexer.ml"
 
   | __ocaml_lex_state -> lexbuf.Lexing.refill_buff lexbuf; 
       __ocaml_lex_escaped_rec lexbuf __ocaml_lex_state
