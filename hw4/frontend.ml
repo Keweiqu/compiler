@@ -207,7 +207,23 @@ and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : stream =
    Only a small subset of OAT expressions can be used as global initializers
    in well-formed programs (The constructors starting with C). *)
 let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
-  failwith "cmp_global_ctxt unimplemented"
+  let helper (c:Ctxt.t) (d:Ast.decl) : Ctxt.t =
+    begin match d with
+      | Gvdecl {elt = v; _} -> 
+        begin match v.init.elt with
+          | CInt n -> Ctxt.add c v.name (cmp_ty Ast.TInt, Ll.Const n)
+          | CStr s -> failwith "unimplemented"
+          | CNull t -> Ctxt.add c v.name (cmp_ty t, Ll.Null)
+          | CBool b -> 
+            begin match b with
+              | true -> Ctxt.add c v.name (cmp_ty Ast.TBool, Ll.Const 1L)
+              | false -> Ctxt.add c v.name (cmp_ty Ast.TBool, Ll.Const 0L)
+            end
+          | CArr (t, arr) -> failwith "unimplemented"
+          | _ -> raise (Invalid_argument "not a global expression.")
+        end
+      | Gfdecl {elt = f; _} -> failwith "unimplemented"
+    end in c
 
 
 (* Compile a function declaration in global context c. Return the LLVMlite cfg
