@@ -109,7 +109,7 @@ let oat_file_test path args =
   let () = Platform.link (dot_ll_file::["runtime.c"]) exec_file in
 
   let result = Driver.run_program args exec_file tmp_file in
-  let () = Platform.sh (Printf.sprintf "rm -f %s %s %s" dot_ll_file exec_file tmp_file) Platform.ignore_error in
+  (* let () = Platform.sh (Printf.sprintf "rm -f %s %s %s" dot_ll_file exec_file tmp_file) Platform.ignore_error in *)
   let () = Platform.verb @@ Printf.sprintf "** Executable output:\n%s\n" result in
   result
 

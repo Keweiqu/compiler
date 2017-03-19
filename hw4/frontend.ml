@@ -162,7 +162,11 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
 *)
 
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
-failwith "cmp_exp unimplemented"    
+  begin match exp.elt with
+    | CInt n -> (cmp_ty TInt, Ll.Const n, [])
+    | _ -> failwith "cmp_exp unimplemented"    
+  end
+
 
 (* Compile a statement in context c with return typ rt. Return a new context,
    possibly extended with new local bindings, and the instruction stream
@@ -191,7 +195,13 @@ failwith "cmp_exp unimplemented"
 
  *)
 let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
-  failwith "cmp_stmt not implemented"
+  begin match stmt.elt with
+    | Ast.Ret None-> (c, [T (Ll.Ret (rt, None))])
+    | Ast.Ret Some exp_node -> 
+      let _, operand, stream =  cmp_exp c exp_node in
+        (c, stream >@ [T (Ll.Ret (rt, Some operand))])
+    | _ -> failwith "cmp_stmt unimplemented."
+  end
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : stream =
@@ -212,18 +222,21 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
       | Gvdecl {elt = v; _} -> 
         begin match v.init.elt with
           | CInt n -> Ctxt.add c v.name (cmp_ty Ast.TInt, Ll.Const n)
-          | CStr s -> failwith "unimplemented"
+          | CStr s -> failwith "cmp_global_ctxt string unimplemented"
           | CNull t -> Ctxt.add c v.name (cmp_ty t, Ll.Null)
           | CBool b -> 
             begin match b with
               | true -> Ctxt.add c v.name (cmp_ty Ast.TBool, Ll.Const 1L)
               | false -> Ctxt.add c v.name (cmp_ty Ast.TBool, Ll.Const 0L)
             end
-          | CArr (t, arr) -> failwith "unimplemented"
+          | CArr (t, arr) -> failwith "cmp_global_ctxt arr unimplemented"
           | _ -> raise (Invalid_argument "not a global expression.")
         end
-      | Gfdecl {elt = f; _} -> failwith "unimplemented"
-    end in c
+      | Gfdecl {elt = f; _} -> 
+         let fty = Ast.TFun ((List.map fst f.args), f.rtyp) in
+           Ctxt.add c f.name (cmp_ty fty, Ll.Gid f.name)
+    end in 
+   List.fold_left helper c p
 
 
 (* Compile a function declaration in global context c. Return the LLVMlite cfg
@@ -238,7 +251,42 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
    4. Use cfg_of_stream to produce a LLVMlite cfg from 
  *)
 let cmp_fdecl (c:Ctxt.t) (f:Ast.fdecl node) : Ll.fdecl * (Ll.gid * Ll.gdecl) list =
-  failwith "cmp_fdecl not implemented"
+  let param_ty_list = 
+    let get_type_helper (arg: Ast.ty * Ast.id) : Ll.ty = 
+      cmp_ty (fst arg) in
+  List.map get_type_helper f.elt.args in
+
+  let param_list = 
+    let get_id_helper (arg: Ast.ty * Ast.id) : string = 
+      snd arg in
+  List.map get_id_helper f.elt.args in
+  
+  let uid_list = 
+    let gen_uids_helper (uids: string list) (arg: Ast.ty * Ast.id) : string list = 
+      uids @ [gensym (snd arg)] in
+    List.fold_left gen_uids_helper [] f.elt.args in
+  
+  let alloca_insns = 
+    let alloca_helper (uid:string) (arg: Ast.ty * Ast.id): (Ll.uid * Ll.insn) = 
+      (uid, Ll.Alloca (cmp_ty (fst arg))) in
+    List.map2 alloca_helper uid_list f.elt.args in 
+  
+  let store_insns = 
+    let store_helper (uid:string) (arg: Ast.ty * Ast.id): (Ll.uid * Ll.insn) = 
+      ("", Ll.Store ( cmp_ty (fst arg), Ll.Id (snd arg), Ll.Id uid)) in
+    List.map2 store_helper uid_list f.elt.args in 
+   
+  let added_ctxt =
+    let add_ctxt_helper (uid:string) (arg: Ast.ty * Ast.id) : (Ast.id * (Ll.ty * Ll.operand)) =
+      (snd arg, (cmp_ty (fst arg), Ll.Id uid)) in
+    List.map2 add_ctxt_helper uid_list f.elt.args in
+  let new_ctxt = added_ctxt @ c in
+  let prelude = lift (alloca_insns @ store_insns) in
+  let body = cmp_block new_ctxt (cmp_ty f.elt.rtyp) f.elt.body in
+  let stream = prelude >@ body in
+  let cfg, g_info = cfg_of_stream stream in
+  let fdecl = { fty = (param_ty_list, cmp_ty f.elt.rtyp); param = param_list; cfg = cfg } in
+  (fdecl, g_info)
 
 
 (* Compile a global initializer, returning the resulting LLVMlite global
@@ -253,7 +301,18 @@ let cmp_fdecl (c:Ctxt.t) (f:Ast.fdecl node) : Ll.fdecl * (Ll.gid * Ll.gdecl) lis
      be an array of pointers to arrays emitted as additional global declarations
  *)
 let rec cmp_gexp (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
-  failwith "cmp_init not implemented"
+  begin match e.elt with
+    | CNull t -> ((cmp_ty t, Ll.GNull), [])  
+    | CBool b -> 
+      begin match b with
+        | true -> ((cmp_ty Ast.TBool, Ll.GInt 1L), [])
+        | false -> ((cmp_ty Ast.TBool, Ll.GInt 0L), [])
+      end
+    | CInt n -> ((cmp_ty Ast.TInt, Ll.GInt n), [])
+    | CStr _ -> failwith "cmp_gexp string unimplemented"
+    | CArr _ -> failwith "cmp_gexp arr unimplemented"
+    | _ -> raise (Invalid_argument "cmp_gexp invalid global initializer.")
+  end
 
 
 (* Oat initial context ------------------------------------------------------ *)

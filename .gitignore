@@ -1,1 +1,4 @@
 /hw3/_build/*
+/hw4/_build/*
+/hw4/output/*
+/hw4/main.native
