@@ -165,8 +165,6 @@ exp:
                         { loc $startpos $endpos @@ NewArr (t, e) } 
   | LPAREN e=exp RPAREN { e }
   | t=BOOL { loc $startpos $endpos @@ CBool t } 
-  | g=gexp { g }
-  | l=lhs { l }  
 
 vdecl:
   | VAR id=IDENT EQ init=exp { (id, init) }

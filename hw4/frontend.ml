@@ -161,11 +161,65 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
      correspond to gids that don't quite have the type you want
 *)
 
+let cmp_bop (bop:Ast.binop) (ty:Ll.ty) (op1: Ll.operand) (op2: Ll.operand) (uid:string): stream = 
+  begin match bop with
+    | Add -> [I (uid, Binop (Ll.Add, ty, op1, op2))]
+    | Sub -> [I (uid, Binop (Ll.Sub, ty, op1, op2))] 
+    | Mul -> [I (uid, Binop (Ll.Mul, ty, op1, op2))]
+    | Eq -> [I (uid, Icmp (Ll.Eq, ty, op1, op2))]
+    | Neq -> [I (uid, Icmp (Ll.Ne, ty, op1, op2))] 
+    | Lt -> [I (uid, Icmp (Ll.Slt, ty, op1, op2))] 
+    | Lte -> [I (uid, Icmp (Ll.Sle, ty, op1, op2))] 
+    | Gt -> [I (uid, Icmp (Ll.Sgt, ty, op1, op2))] 
+    | Gte -> [I (uid, Icmp (Ll.Sge, ty, op1, op2))] 
+    | And | IAnd -> [I (uid, Binop (Ll.And, ty, op1, op2))]
+    | Or | IOr -> [I (uid, Binop (Ll.Or, ty, op1, op2))] 
+    | Shl -> [I (uid, Binop (Ll.Shl, ty, op1, op2))] 
+    | Shr -> [I (uid, Binop (Ll.Lshr, ty, op1, op2))] 
+    | Sar -> [I (uid, Binop (Ll.Ashr, ty, op1, op2))]
+  end
+
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   begin match exp.elt with
+    | CNull t -> (cmp_ty t, Ll.Null, [])
+    | CBool b -> 
+      begin match b with
+        | true -> (cmp_ty TBool, Ll.Const 1L, [])
+        | false -> (cmp_ty TBool, Ll.Const 0L, [])
+      end
     | CInt n -> (cmp_ty TInt, Ll.Const n, [])
-    | _ -> failwith "cmp_exp unimplemented"    
+    | CStr s -> failwith "cmp_exp cstr unimplemented"
+    | CArr (t, exp_list) -> failwith "cmp_exp carr unimplemented"
+
+    | NewArr (t, exp) -> failwith "cmp_exp newarr unimplemented"
+    | Id id -> 
+      let t, operand = Ctxt.lookup id c in 
+        begin match t with
+          | Ll.Ptr ty -> 
+            let id_operand = gensym "id" in
+              (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
+          | _ -> (t, operand, [])
+        end
+    | Index (exp1, exp2) -> failwith "cmp_exp index unimplemented"
+    | Call (id, exp_list) ->  failwith "cmp_exp call unimplemented"
+    | Bop (bop, exp1, exp2) -> 
+      let t1, op1, s1 = cmp_exp c exp1 in
+      let t2, op2, s2 = cmp_exp c exp2 in
+      let new_op = gensym "bop" in 
+      let s3 = cmp_bop bop t1 op1 op2 new_op in
+      (t1, Ll.Id new_op, s1 >@ s2 >@ s3)
+    | Uop (op, exp) ->
+      let t1, op1, s1 = cmp_exp c exp in
+      let new_op = gensym "uop" in
+      begin match op with
+        | Neg -> (cmp_ty TInt, Ll.Id new_op, s1 >@ [I (new_op, Binop (Sub, Ll.I64, Ll.Const 0L, op1))])
+        | Lognot -> (cmp_ty TBool, Ll.Id new_op, s1 >@ [I (new_op, Binop (Xor, Ll.I1, Ll.Const 1L, op1))])
+        | Bitnot -> (cmp_ty TBool, Ll.Id new_op, s1 >@ [I (new_op, Binop (Xor, Ll.I1, Ll.Const (Int64.neg 1L), op1))])
+      end
   end
+
+
+
 
 
 (* Compile a statement in context c with return typ rt. Return a new context,
@@ -196,11 +250,26 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
  *)
 let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
   begin match stmt.elt with
+    | Ast.Assn (exp1, exp2) -> failwith "cmp_stmt assn unimplemented"
+    | Ast.Decl (id, exp) -> 
+      let ty, exp_op, exp_s = cmp_exp c exp in
+      let uid = gensym "decl" in
+      let decl_s = [E (uid, Alloca ty); I ("", Store (ty, exp_op, Ll.Id uid))] in
+      let new_c = Ctxt.add c id (Ll.Ptr ty, Ll.Id uid) in 
+      let stream = exp_s >@ decl_s in 
+      (new_c, stream)
+
     | Ast.Ret None-> (c, [T (Ll.Ret (rt, None))])
-    | Ast.Ret Some exp_node -> 
-      let _, operand, stream =  cmp_exp c exp_node in
+    | Ast.Ret Some exp -> 
+      let _, operand, stream =  cmp_exp c exp in
         (c, stream >@ [T (Ll.Ret (rt, Some operand))])
-    | _ -> failwith "cmp_stmt unimplemented."
+    | Ast.SCall (id, exp_list) -> failwith "cmp_stmt call unimplemented"
+    | Ast.If (exp, b1, b2) -> failwith "cmp_stmt if unimplemented"
+    | Ast.For (vdecl_list, None, None, b) -> failwith "cmp_stmt for unimplemented"
+    | Ast.For (vdecl_list, Some  exp, Some for_stmt, b) -> failwith "cmp_stmt for unimplemented"
+    | Ast.While (exp, b) -> failwith "cmp_stmt while unimplemented"
+    | Ast.For (vdecl_list, None, Some _, b) | Ast.For (vdecl_list, Some _, None, b) ->
+      raise (Invalid_argument "cmp_stmt for statment incorrect argument")
   end
 
 (* Compile a series of statements *)
