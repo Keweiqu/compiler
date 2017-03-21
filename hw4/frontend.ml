@@ -179,6 +179,7 @@ let cmp_bop (bop:Ast.binop) (ty:Ll.ty) (op1: Ll.operand) (op2: Ll.operand) (uid:
     | Sar -> [I (uid, Binop (Ll.Ashr, ty, op1, op2))]
   end
 
+
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   begin match exp.elt with
     | CNull t -> (cmp_ty t, Ll.Null, [])
@@ -206,20 +207,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       begin match fun_ty with
         | Fun (_, ret_ty) ->       
           let call_operand = gensym "call" in
-          let args_n_stream = 
-            let fun_arg_helper (acc: (Ll.ty * Ll.operand * stream) list)
-                               (exp: exp node): (Ll.ty * Ll.operand * stream) list =
-              acc @ [cmp_exp c exp]
-          in List.fold_left fun_arg_helper [] exp_list in
-          let args = 
-            let map_helper (ele: (Ll.ty * Ll.operand * stream)) : (Ll.ty * Ll.operand) = 
-              let t, op, _ = ele in (t, op)
-            in List.map map_helper args_n_stream in
-          let arg_stream = 
-            let flatten (acc:stream) (ele: (Ll.ty * Ll.operand * stream)): stream =
-              let _, _, s = ele in
-              acc @ s
-            in List.fold_left flatten [] args_n_stream in
+          let args, arg_stream = cmp_args c exp_list in
           let new_stream = 
             arg_stream >@ [I (call_operand, Ll.Call (ret_ty, fname, args))] in
             (ret_ty, Ll.Id call_operand, new_stream)
@@ -241,7 +229,22 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       end
   end
 
-
+and cmp_args (c:Ctxt.t) (exp_list: exp node list) : ((Ll.ty * Ll.operand) list * stream) =
+  let args_n_stream = 
+    let fun_arg_helper (acc: (Ll.ty * Ll.operand * stream) list)
+      (exp: exp node): (Ll.ty * Ll.operand * stream) list =
+        acc @ [cmp_exp c exp]
+          in List.fold_left fun_arg_helper [] exp_list in
+    let args = 
+      let map_helper (ele: (Ll.ty * Ll.operand * stream)) : (Ll.ty * Ll.operand) = 
+        let t, op, _ = ele in (t, op)
+          in List.map map_helper args_n_stream in
+    let arg_stream = 
+      let flatten (acc:stream) (ele: (Ll.ty * Ll.operand * stream)): stream =
+        let _, _, s = ele in
+          acc @ s
+            in List.fold_left flatten [] args_n_stream in
+    (args, arg_stream)
 
 
 
