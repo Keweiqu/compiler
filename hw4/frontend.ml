@@ -161,22 +161,24 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
      correspond to gids that don't quite have the type you want
 *)
 
-let cmp_bop (bop:Ast.binop) (ty:Ll.ty) (op1: Ll.operand) (op2: Ll.operand) (uid:string): stream = 
+let cmp_bop (bop:Ast.binop) (ty:Ll.ty) (op1: Ll.operand) (op2: Ll.operand) (uid:string): Ll.ty * stream = 
   begin match bop with
-    | Add -> [I (uid, Binop (Ll.Add, ty, op1, op2))]
-    | Sub -> [I (uid, Binop (Ll.Sub, ty, op1, op2))] 
-    | Mul -> [I (uid, Binop (Ll.Mul, ty, op1, op2))]
-    | Eq -> [I (uid, Icmp (Ll.Eq, ty, op1, op2))]
-    | Neq -> [I (uid, Icmp (Ll.Ne, ty, op1, op2))] 
-    | Lt -> [I (uid, Icmp (Ll.Slt, ty, op1, op2))] 
-    | Lte -> [I (uid, Icmp (Ll.Sle, ty, op1, op2))] 
-    | Gt -> [I (uid, Icmp (Ll.Sgt, ty, op1, op2))] 
-    | Gte -> [I (uid, Icmp (Ll.Sge, ty, op1, op2))] 
-    | And | IAnd -> [I (uid, Binop (Ll.And, ty, op1, op2))]
-    | Or | IOr -> [I (uid, Binop (Ll.Or, ty, op1, op2))] 
-    | Shl -> [I (uid, Binop (Ll.Shl, ty, op1, op2))] 
-    | Shr -> [I (uid, Binop (Ll.Lshr, ty, op1, op2))] 
-    | Sar -> [I (uid, Binop (Ll.Ashr, ty, op1, op2))]
+    | Add -> (ty, [I (uid, Binop (Ll.Add, ty, op1, op2))])
+    | Sub -> (ty, [I (uid, Binop (Ll.Sub, ty, op1, op2))]) 
+    | Mul -> (ty, [I (uid, Binop (Ll.Mul, ty, op1, op2))])
+    | Eq -> (I1, [I (uid, Icmp (Ll.Eq, ty, op1, op2))])
+    | Neq -> (I1, [I (uid, Icmp (Ll.Ne, ty, op1, op2))])
+    | Lt -> (I1, [I (uid, Icmp (Ll.Slt, ty, op1, op2))]) 
+    | Lte -> (I1, [I (uid, Icmp (Ll.Sle, ty, op1, op2))]) 
+    | Gt -> (I1, [I (uid, Icmp (Ll.Sgt, ty, op1, op2))]) 
+    | Gte -> (I1, [I (uid, Icmp (Ll.Sge, ty, op1, op2))]) 
+    | And -> (I1, [I (uid, Binop (Ll.And, ty, op1, op2))])
+    | IAnd -> (ty, [I (uid, Binop (Ll.And, ty, op1, op2))])
+    | Or -> (I1, [I (uid, Binop (Ll.Or, ty, op1, op2))])
+    | IOr -> (ty, [I (uid, Binop (Ll.Or, ty, op1, op2))])
+    | Shl -> (ty, [I (uid, Binop (Ll.Shl, ty, op1, op2))])
+    | Shr -> (ty, [I (uid, Binop (Ll.Lshr, ty, op1, op2))]) 
+    | Sar -> (ty, [I (uid, Binop (Ll.Ashr, ty, op1, op2))])
   end
 
 
@@ -217,15 +219,15 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let t1, op1, s1 = cmp_exp c exp1 in
       let t2, op2, s2 = cmp_exp c exp2 in
       let new_op = gensym "bop" in 
-      let s3 = cmp_bop bop t1 op1 op2 new_op in
-      (t1, Ll.Id new_op, s1 >@ s2 >@ s3)
+      let rt_ty, s3 = cmp_bop bop t1 op1 op2 new_op in
+      (rt_ty, Ll.Id new_op, s1 >@ s2 >@ s3)
     | Uop (op, exp) ->
       let t1, op1, s1 = cmp_exp c exp in
       let new_op = gensym "uop" in
       begin match op with
         | Neg -> (cmp_ty TInt, Ll.Id new_op, s1 >@ [I (new_op, Binop (Sub, Ll.I64, Ll.Const 0L, op1))])
         | Lognot -> (cmp_ty TBool, Ll.Id new_op, s1 >@ [I (new_op, Binop (Xor, Ll.I1, Ll.Const 1L, op1))])
-        | Bitnot -> (cmp_ty TBool, Ll.Id new_op, s1 >@ [I (new_op, Binop (Xor, Ll.I1, Ll.Const (Int64.neg 1L), op1))])
+        | Bitnot -> (cmp_ty TInt, Ll.Id new_op, s1 >@ [I (new_op, Binop (Xor, Ll.I64, Ll.Const (Int64.neg 1L), op1))])
       end
   end
 
@@ -297,8 +299,25 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
     | Ast.Ret Some exp -> 
       let _, operand, stream =  cmp_exp c exp in
         (c, stream >@ [T (Ll.Ret (rt, Some operand))])
-    | Ast.SCall (id, exp_list) -> failwith "cmp_stmt call unimplemented"
-    | Ast.If (exp, b1, b2) -> failwith "cmp_stmt if unimplemented"
+    | Ast.SCall (id, exp_list) -> 
+      let fun_ty, fname = Ctxt.lookup id c in
+      begin match fun_ty with
+        | Fun (_, ret_ty) ->       
+          let args, arg_stream = cmp_args c exp_list in
+          let new_stream = 
+            arg_stream >@ [I ("", Ll.Call (ret_ty, fname, args))] in
+          (c, new_stream)
+        | _ -> raise (Invalid_argument "cmp_stmt not a valid function type")
+      end
+    | Ast.If (exp, b1, b2) -> 
+      let _, exp_op, exp_stream = cmp_exp c exp in
+      let b1_stream = cmp_block c rt b1 in 
+      let b2_stream = cmp_block c rt b2 in 
+      let b1_lbl = gensym "b1" in 
+      let b2_lbl = gensym "b2" in
+      let new_stream = exp_stream >@ [T (Cbr (exp_op, b1_lbl, b2_lbl))] 
+          >@ [L b1_lbl] >@ b1_stream >@ [L b2_lbl] >@ b2_stream in
+      (c, new_stream)
     | Ast.For (vdecl_list, None, None, b) -> failwith "cmp_stmt for unimplemented"
     | Ast.For (vdecl_list, Some  exp, Some for_stmt, b) -> failwith "cmp_stmt for unimplemented"
     | Ast.While (exp, b) -> failwith "cmp_stmt while unimplemented"
