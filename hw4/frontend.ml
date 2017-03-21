@@ -201,7 +201,30 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
           | _ -> (t, operand, [])
         end
     | Index (exp1, exp2) -> failwith "cmp_exp index unimplemented"
-    | Call (id, exp_list) ->  failwith "cmp_exp call unimplemented"
+    | Call (id, exp_list) -> 
+      let fun_ty, fname = Ctxt.lookup id c in
+      begin match fun_ty with
+        | Fun (_, ret_ty) ->       
+          let call_operand = gensym "call" in
+          let args_n_stream = 
+            let fun_arg_helper (acc: (Ll.ty * Ll.operand * stream) list)
+                               (exp: exp node): (Ll.ty * Ll.operand * stream) list =
+              acc @ [cmp_exp c exp]
+          in List.fold_left fun_arg_helper [] exp_list in
+          let args = 
+            let map_helper (ele: (Ll.ty * Ll.operand * stream)) : (Ll.ty * Ll.operand) = 
+              let t, op, _ = ele in (t, op)
+            in List.map map_helper args_n_stream in
+          let arg_stream = 
+            let flatten (acc:stream) (ele: (Ll.ty * Ll.operand * stream)): stream =
+              let _, _, s = ele in
+              acc @ s
+            in List.fold_left flatten [] args_n_stream in
+          let new_stream = 
+            arg_stream >@ [I (call_operand, Ll.Call (ret_ty, fname, args))] in
+            (ret_ty, Ll.Id call_operand, new_stream)
+        | _ -> raise (Invalid_argument "cmp_exp not a valid function type")
+      end
     | Bop (bop, exp1, exp2) -> 
       let t1, op1, s1 = cmp_exp c exp1 in
       let t2, op2, s2 = cmp_exp c exp2 in
@@ -250,7 +273,15 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
  *)
 let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
   begin match stmt.elt with
-    | Ast.Assn (exp1, exp2) -> failwith "cmp_stmt assn unimplemented"
+    | Ast.Assn (exp1, exp2) -> 
+      begin match exp1.elt with
+        | Id id ->
+          let t1, op1 = Ctxt.lookup id c in 
+          let t2, op2, stream2 = cmp_exp c exp2 in 
+            (c, stream2 >@ [I ("",Store (t2, op2, op1))])
+        | Index _ -> failwith "cmp_stmt assign index unimplemented"
+        | _ -> raise (Invalid_argument "cmp_stmt invalid assignment left-hand side.")
+      end
     | Ast.Decl (id, exp) -> 
       let ty, exp_op, exp_s = cmp_exp c exp in
       let uid = gensym "decl" in
@@ -289,16 +320,13 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
   let helper (c:Ctxt.t) (d:Ast.decl) : Ctxt.t =
     begin match d with
       | Gvdecl {elt = v; _} -> 
+        let global_id = v.name in
         begin match v.init.elt with
-          | CInt n -> Ctxt.add c v.name (cmp_ty Ast.TInt, Ll.Const n)
-          | CStr s -> failwith "cmp_global_ctxt string unimplemented"
-          | CNull t -> Ctxt.add c v.name (cmp_ty t, Ll.Null)
-          | CBool b -> 
-            begin match b with
-              | true -> Ctxt.add c v.name (cmp_ty Ast.TBool, Ll.Const 1L)
-              | false -> Ctxt.add c v.name (cmp_ty Ast.TBool, Ll.Const 0L)
-            end
-          | CArr (t, arr) -> failwith "cmp_global_ctxt arr unimplemented"
+          | CInt n -> Ctxt.add c v.name (Ll.Ptr (cmp_ty Ast.TInt), Ll.Gid global_id)
+          | CStr s -> Ctxt.add c v.name (Ll.Ptr (cmp_ty (Ast.TRef RString)), Ll.Gid global_id)
+          | CNull t -> Ctxt.add c v.name (Ll.Ptr (cmp_ty t), Ll.Gid global_id)
+          | CBool b -> Ctxt.add c v.name (Ll.Ptr (cmp_ty Ast.TBool), Ll.Gid global_id)
+          | CArr (t, arr) -> Ctxt.add c v.name (Ll.Ptr (cmp_ty (Ast.TRef (RArray t))), Ll.Gid global_id)
           | _ -> raise (Invalid_argument "not a global expression.")
         end
       | Gfdecl {elt = f; _} -> 
@@ -347,7 +375,7 @@ let cmp_fdecl (c:Ctxt.t) (f:Ast.fdecl node) : Ll.fdecl * (Ll.gid * Ll.gdecl) lis
    
   let added_ctxt =
     let add_ctxt_helper (uid:string) (arg: Ast.ty * Ast.id) : (Ast.id * (Ll.ty * Ll.operand)) =
-      (snd arg, (cmp_ty (fst arg), Ll.Id uid)) in
+      (snd arg, (Ll.Ptr (cmp_ty (fst arg)), Ll.Id uid)) in
     List.map2 add_ctxt_helper uid_list f.elt.args in
   let new_ctxt = added_ctxt @ c in
   let prelude = lift (alloca_insns @ store_insns) in
