@@ -319,15 +319,44 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let new_stream = exp_stream >@ [T (Cbr (exp_op, b1_lbl, b2_lbl))] 
           >@ [L b1_lbl] >@ b1_stream >@ [T (Br merge_lbl)] >@ [L b2_lbl] >@ b2_stream >@ [T (Br merge_lbl)] >@ [L merge_lbl] in
       (c, new_stream)
-    | Ast.For (vdecl_list, None, None, b) -> failwith "cmp_stmt for unimplemented"
-    | Ast.For (vdecl_list, Some  exp, Some for_stmt, b) -> failwith "cmp_stmt for unimplemented"
+    | Ast.For (vdecl_list, None, None, b) -> 
+      let decl_ctxt, decl_stream = 
+        let decl_helper (acc:(Ctxt.t * stream)) (vdecl:vdecl) : (Ctxt.t * stream) = 
+         let new_ctxt, new_stream = 
+           let id, e = vdecl in cmp_stmt (fst acc) Ll.Void {elt = (Ast.Decl (id, e)); loc = stmt.loc}
+          in (new_ctxt, (snd acc) >@ new_stream)
+       in List.fold_left decl_helper (c, []) vdecl_list in
+      let _, exp_op, exp_stream = cmp_exp decl_ctxt {elt = (CBool true); loc = stmt.loc} in 
+      let b_stream = cmp_block decl_ctxt rt b in
+      let pre_lbl = gensym "lpre" in
+      let body_lbl = gensym "lbody" in
+      let post_lbl = gensym "lpost" in
+      let new_stream = decl_stream >@ [T (Br pre_lbl)] >@ [L pre_lbl] >@ exp_stream >@ [T (Cbr (exp_op, body_lbl, post_lbl))]
+          >@ [L body_lbl] >@ b_stream >@ [T (Br pre_lbl)] >@ [L post_lbl] 
+      in (c, new_stream)
+    | Ast.For (vdecl_list, Some  exp, Some for_stmt, b) -> 
+      let decl_ctxt, decl_stream = 
+        let decl_helper (acc:(Ctxt.t * stream)) (vdecl:vdecl) : (Ctxt.t * stream) = 
+         let new_ctxt, new_stream = 
+           let id, e = vdecl in cmp_stmt (fst acc) Ll.Void {elt = (Ast.Decl (id, e)); loc = stmt.loc}
+          in (new_ctxt, (snd acc) >@ new_stream)
+       in List.fold_left decl_helper (c, []) vdecl_list in
+      let _, exp_op, exp_stream = cmp_exp decl_ctxt exp in 
+      let b_stream = cmp_block decl_ctxt rt b in
+      let _, incr_stream = cmp_stmt decl_ctxt rt for_stmt in
+      let pre_lbl = gensym "lpre" in
+      let body_lbl = gensym "lbody" in
+      let post_lbl = gensym "lpost" in
+      let new_stream = decl_stream >@ [T (Br pre_lbl)] >@ [L pre_lbl] >@ exp_stream >@ [T (Cbr (exp_op, body_lbl, post_lbl))]
+          >@ [L body_lbl] >@ b_stream >@ incr_stream >@ [T (Br pre_lbl)] >@ [L post_lbl] 
+      in (c, new_stream)    
     | Ast.While (exp, b) ->
       let _, exp_op, exp_stream = cmp_exp c exp in 
       let b_stream = cmp_block c rt b in
       let pre_lbl = gensym "lpre" in
       let body_lbl = gensym "lbody" in
       let post_lbl = gensym "lpost" in
-      let new_stream = [L pre_lbl] >@ exp_stream >@ [T (Cbr (exp_op, body_lbl, post_lbl))]
+      let new_stream = [T (Br pre_lbl)] >@ [L pre_lbl] >@ exp_stream >@ [T (Cbr (exp_op, body_lbl, post_lbl))]
           >@ [L body_lbl] >@ b_stream >@ [T (Br pre_lbl)] >@ [L post_lbl] in
       (c, new_stream)
     | Ast.For (vdecl_list, None, Some _, b) | Ast.For (vdecl_list, Some _, None, b) ->
