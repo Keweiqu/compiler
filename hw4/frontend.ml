@@ -316,9 +316,8 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let b1_lbl = gensym "b1" in 
       let b2_lbl = gensym "b2" in
       let merge_lbl = gensym "merge" in
-      let fake_lbl = gensym "fake" in
       let new_stream = exp_stream >@ [T (Cbr (exp_op, b1_lbl, b2_lbl))] 
-          >@ [L b1_lbl] >@ b1_stream >@ [T (Br merge_lbl)] >@ [L b2_lbl] >@ b2_stream >@ [T (Br merge_lbl)] >@ [L merge_lbl] >@ [L fake_lbl] in
+          >@ [L b1_lbl] >@ b1_stream >@ [T (Br merge_lbl)] >@ [L b2_lbl] >@ b2_stream >@ [T (Br merge_lbl)] >@ [L merge_lbl] in
       (c, new_stream)
     | Ast.For (vdecl_list, None, None, b) -> failwith "cmp_stmt for unimplemented"
     | Ast.For (vdecl_list, Some  exp, Some for_stmt, b) -> failwith "cmp_stmt for unimplemented"
