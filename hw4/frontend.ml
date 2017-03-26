@@ -202,28 +202,21 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let t, operand = Ctxt.lookup id c in 
         begin match t with
           | Ll.Ptr ty -> 
-               let id_operand = gensym "id" in
-                (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
-            (*
-            begin match ty with 
-            | Array (_, arr_ty) -> 
-              let id_operand = gensym "id" in
-              let bitcast_op = gensym "bitcast" in
-                (Ptr arr_ty, Ll.Id id_operand, [I (id_operand, Load (t, Ll.Id bitcast_op)); I (bitcast_op, Bitcast (t, operand, Ptr arr_ty ))])
-            | _ -> 
-              let id_operand = gensym "id" in
-                (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
-            end
-             *)
+              begin match ty with
+                | Array (_, _) -> (t, operand, []) 
+                | _ -> 
+                  let id_operand = gensym "id" in
+                    (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
+              end
           | _ -> (t, operand, [])
         end
     | Index (exp1, exp2) -> failwith "cmp_exp index unimplemented"
     | Call (id, exp_list) -> 
       let fun_ty, fname = Ctxt.lookup id c in
       begin match fun_ty with
-        | Fun (_, ret_ty) ->       
+        | Fun (args_ty, ret_ty) ->       
           let call_operand = gensym "call" in
-          let args, arg_stream = cmp_args c exp_list in
+          let args, arg_stream = cmp_args c exp_list args_ty in
           let new_stream = 
             arg_stream >@ [I (call_operand, Ll.Call (ret_ty, fname, args))] in
             (ret_ty, Ll.Id call_operand, new_stream)
@@ -245,22 +238,15 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       end
   end
 
-and cmp_args (c:Ctxt.t) (exp_list: exp node list) : ((Ll.ty * Ll.operand) list * stream) =
-  let args_n_stream = 
-    let fun_arg_helper (acc: (Ll.ty * Ll.operand * stream) list)
-      (exp: exp node): (Ll.ty * Ll.operand * stream) list =
-        acc @ [cmp_exp c exp]
-          in List.fold_left fun_arg_helper [] exp_list in
-    let args = 
-      let map_helper (ele: (Ll.ty * Ll.operand * stream)) : (Ll.ty * Ll.operand) = 
-        let t, op, _ = ele in (t, op)
-          in List.map map_helper args_n_stream in
-    let arg_stream = 
-      let flatten (acc:stream) (ele: (Ll.ty * Ll.operand * stream)): stream =
-        let _, _, s = ele in
-          acc @ s
-            in List.fold_left flatten [] args_n_stream in
-    (args, arg_stream)
+and cmp_args (c:Ctxt.t) (exp_list: exp node list) (args_ty:Ll.ty list): ((Ll.ty * Ll.operand) list * stream) =
+  let cmp_args_helper (acc: ((Ll.ty * Ll.operand) list * stream)) (exp:(exp node * Ll.ty)) : ((Ll.ty * Ll.operand) list* stream) = 
+    let exp_ty, exp_op, exp_stream = cmp_exp c (fst exp) in
+        if exp_ty != snd exp then 
+          let bitcast_op = gensym "bitcast" in
+            ((fst acc) @ [(snd exp, Ll.Id bitcast_op)], (snd acc) >@ exp_stream >@ [I (bitcast_op, Bitcast (exp_ty, exp_op, snd exp))])
+        else 
+            ((fst acc) @ [(snd exp, exp_op)], (snd acc) >@ exp_stream)
+  in List.fold_left cmp_args_helper ([], []) (List.combine exp_list args_ty)
 
 
 
@@ -305,18 +291,6 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let ty, exp_op, exp_s = cmp_exp c exp in
       let uid = gensym "decl" in
       let decl_s = [E (uid, Alloca ty); I ("", Store (ty, exp_op, Ll.Id uid))] in
-       (*
-        begin match ty with
-        | Ptr (Array (_, t)) -> 
-          let bitcast_op = gensym "bitcast" in
-          [
-            E (uid, Alloca (Ptr t));
-            I ("", Store ((Ptr t), Ll.Id bitcast_op, Ll.Id uid));
-            I (bitcast_op, Bitcast (ty, exp_op, (Ptr t)))
-          ]
-        | _ -> [E (uid, Alloca ty); I ("", Store (ty, exp_op, Ll.Id uid))]
-        end in
-        *)
       let new_c = Ctxt.add c id (Ll.Ptr ty, Ll.Id uid) in 
       let stream = exp_s >@ decl_s in 
       (new_c, stream)
@@ -328,8 +302,8 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
     | Ast.SCall (id, exp_list) -> 
       let fun_ty, fname = Ctxt.lookup id c in
       begin match fun_ty with
-        | Fun (_, ret_ty) ->       
-          let args, arg_stream = cmp_args c exp_list in
+        | Fun (args_ty, ret_ty) ->       
+          let args, arg_stream = cmp_args c exp_list args_ty in
           let new_stream = 
             arg_stream >@ [I ("", Ll.Call (ret_ty, fname, args))] in
           (c, new_stream)
@@ -497,7 +471,14 @@ let rec cmp_gexp (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
     | CStr s -> 
       let length = String.length s in
       (( Array (length + 1, I8), GString s), [])
-    | CArr _ -> failwith "cmp_gexp arr unimplemented"
+    | CArr (ty, exp_list) ->
+      let gdecls, gid_gdecl_list = 
+       let cmp_carr_helper (acc: (Ll.gdecl list * (Ll.gid * Ll.gdecl) list)) (exp:exp node) : (Ll.gdecl list * (Ll.gid * Ll.gdecl) list) =
+          let decl, decl_list = cmp_gexp exp in 
+          ((fst acc) @ [decl], decl_list @ (snd acc))
+        in List.fold_left cmp_carr_helper ([], []) exp_list
+      in ((Array (List.length exp_list, cmp_ty ty), GArray gdecls), gid_gdecl_list)
+
     | _ -> raise (Invalid_argument "cmp_gexp invalid global initializer.")
   end
 
