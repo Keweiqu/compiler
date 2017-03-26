@@ -195,7 +195,36 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let string_id = gensym "str" in
       let length = String.length s in
       (Ptr (Array (length + 1, I8)), Ll.Gid string_id, [G (string_id, (Array (length + 1, I8), Ll.GString s))])
-    | CArr (t, exp_list) -> failwith "cmp_exp carr unimplemented"
+    | CArr (ty, exp_list) -> 
+      let t = cmp_ty ty in
+      let carr_op = gensym "carr" in
+      let size_op = gensym "arrsize" in
+      let length = (List.length exp_list) + 1 in
+      let stream1 = 
+        [I (carr_op, Alloca (Array(length, t)))] >@
+        [I (size_op, Gep (Ptr (Array (length, t)), Ll.Id carr_op, [Ll.Const 0L; Ll.Const 0L]))] >@
+        [I ("", Store (I64, Const (Int64.of_int (length - 1)), Ll.Id size_op))] in
+      let exp_list_stream, _ = 
+        let carr_helper (acc:(stream * int64)) (exp: exp node) : (stream * int64) = 
+          let exp_ty, exp_op, exp_stream = cmp_exp c exp in
+          let gep_op = gensym "gep" in
+            if exp_ty != t then
+              let bitcast_op = gensym "bitcast" in
+                let new_stream = (fst acc) >@
+                                 exp_stream >@
+                                 [I (bitcast_op, Bitcast (exp_ty, exp_op, t))] >@ 
+                                 [I (gep_op, Gep (Ptr (Array (length, t)), Ll.Id carr_op, [Ll.Const 0L; Ll.Const (snd acc)] ))] >@
+                                 [I ("", Store (t, Ll.Id bitcast_op, Ll.Id gep_op))] in
+              (new_stream, Int64.add 1L (snd acc))
+            else 
+              let new_stream = (fst acc) >@
+                               exp_stream >@
+                               [I (gep_op, Gep (Ptr (Array (length, t)), Ll.Id carr_op, [Ll.Const 0L; Ll.Const (snd acc)] ))] >@
+                               [I ("", Store (t, exp_op, Ll.Id gep_op))] in
+              (new_stream, Int64.add 1L (snd acc))
+         in List.fold_left carr_helper ([], 1L) exp_list in
+      (Ptr (Array(length, t)), Ll.Id carr_op, stream1 >@ exp_list_stream)
+            
 
     | NewArr (t, exp) -> failwith "cmp_exp newarr unimplemented"
     | Id id -> 
@@ -388,7 +417,9 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
             Ctxt.add c v.name (Ll.Ptr (Array(length + 1, I8)), Ll.Gid global_id)
           | CNull t -> Ctxt.add c v.name (Ll.Ptr (cmp_ty t), Ll.Gid global_id)
           | CBool b -> Ctxt.add c v.name (Ll.Ptr (cmp_ty Ast.TBool), Ll.Gid global_id)
-          | CArr (t, arr) -> Ctxt.add c v.name (Ll.Ptr (cmp_ty (Ast.TRef (RArray t))), Ll.Gid global_id)
+          | CArr (t, arr) -> 
+            let length = List.length arr in 
+            Ctxt.add c v.name (Ll.Ptr (Array (length, cmp_ty t)), Ll.Gid global_id)
           | _ -> raise (Invalid_argument "not a global expression.")
         end
       | Gfdecl {elt = f; _} -> 
