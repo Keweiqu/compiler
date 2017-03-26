@@ -195,16 +195,16 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let string_id = gensym "str" in
       let length = String.length s in
       (Ptr (Array (length + 1, I8)), Ll.Gid string_id, [G (string_id, (Array (length + 1, I8), Ll.GString s))])
-    | CArr (ty, exp_list) -> 
+    | CArr (ty, exp_list) ->
       let t = cmp_ty ty in
       let carr_op = gensym "carr" in
-      let size_op = gensym "arrsize" in
-      let length = (List.length exp_list) + 1 in
+      let size_op = gensym "size" in
+      let length = List.length exp_list in
       let stream1 = 
-        [I (carr_op, Alloca (Array(length, t)))] >@
-        [I (size_op, Gep (Ptr (Array (length, t)), Ll.Id carr_op, [Ll.Const 0L; Ll.Const 0L]))] >@
-        [I ("", Store (I64, Const (Int64.of_int (length - 1)), Ll.Id size_op))] in
-      let exp_list_stream, _ = 
+        [I (carr_op, Alloca (Struct [I64; Array (length, t)]))] >@
+        [I (size_op, Gep (Ptr (Struct [I64; Array (length, t)]), Ll.Id carr_op, [Ll.Const 0L; Ll.Const 0L] ))] >@
+        [I ("", Store (I64, Ll.Const (Int64.of_int length), Ll.Id size_op))] in
+       let exp_list_stream, _ = 
         let carr_helper (acc:(stream * int64)) (exp: exp node) : (stream * int64) = 
           let exp_ty, exp_op, exp_stream = cmp_exp c exp in
           let gep_op = gensym "gep" in
@@ -213,20 +213,29 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
                 let new_stream = (fst acc) >@
                                  exp_stream >@
                                  [I (bitcast_op, Bitcast (exp_ty, exp_op, t))] >@ 
-                                 [I (gep_op, Gep (Ptr (Array (length, t)), Ll.Id carr_op, [Ll.Const 0L; Ll.Const (snd acc)] ))] >@
+                                 [I (gep_op, Gep (Ptr (Struct [I64; Array (length, t)]), Ll.Id carr_op, [Ll.Const 0L; Ll.Const 1L; Ll.Const (snd acc)] ))] >@
                                  [I ("", Store (t, Ll.Id bitcast_op, Ll.Id gep_op))] in
               (new_stream, Int64.add 1L (snd acc))
             else 
               let new_stream = (fst acc) >@
                                exp_stream >@
-                               [I (gep_op, Gep (Ptr (Array (length, t)), Ll.Id carr_op, [Ll.Const 0L; Ll.Const (snd acc)] ))] >@
+                               [I (gep_op, Gep (Ptr (Struct [I64; Array (length, t)]), Ll.Id carr_op, [Ll.Const 0L; Ll.Const 1L; Ll.Const (snd acc)] ))] >@
                                [I ("", Store (t, exp_op, Ll.Id gep_op))] in
               (new_stream, Int64.add 1L (snd acc))
-         in List.fold_left carr_helper ([], 1L) exp_list in
-      (Ptr (Array(length, t)), Ll.Id carr_op, stream1 >@ exp_list_stream)
-            
-
-    | NewArr (t, exp) -> failwith "cmp_exp newarr unimplemented"
+         in List.fold_left carr_helper ([], 0L) exp_list in
+         let bitcast_arr = gensym "bitcast_arr" in
+         let new_stream = stream1 >@ exp_list_stream >@ [I (bitcast_arr, Bitcast (Ptr (Struct [I64; Array (length, t)]), Ll.Id carr_op, Ptr (Struct [I64; Array (0, t)])))]
+         in (Ptr (Struct [I64; Array (0, t)]), Ll.Id bitcast_arr, new_stream)
+    | NewArr (t, exp) ->
+      let exp_ty, exp_op, exp_stream = cmp_exp c exp in
+      let size_op, size_stream = 
+        if exp_ty != I64 then
+          let bitcast_op = gensym "bitcast" in
+            (Ll.Id bitcast_op, exp_stream >@ [I (bitcast_op, Bitcast (exp_ty, exp_op, I64))]) 
+        else 
+          (exp_op, exp_stream)
+      in let ty, new_op, new_stream = oat_alloc_array t size_op in
+      (ty, new_op, size_stream >@ new_stream)
     | Id id -> 
       let t, operand = Ctxt.lookup id c in 
         begin match t with
@@ -239,7 +248,21 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
               end
           | _ -> (t, operand, [])
         end
-    | Index (exp1, exp2) -> failwith "cmp_exp index unimplemented"
+    | Index (exp1, exp2) -> 
+      let ty1, op1, stream1 = cmp_exp c exp1 in 
+      let ty2, op2, stream2 = cmp_exp c exp2 in
+      let idx_op = gensym "idx" in
+      let idx_val = gensym "idx_val" in
+      begin match ty1 with
+        | Ptr (Struct [size; Array (_, ty)]) ->
+          (ty, Ll.Id idx_val, stream1 
+                        >@ stream2 
+                        >@ [I (idx_op, Gep (ty1, op1, [Ll.Const 0L; Ll.Const 1L; op2]))] 
+                        >@ [I (idx_val, Load (Ptr ty, Ll.Id idx_op))])
+        | Ptr Array (size, ty) ->
+          (ty, Ll.Id idx_val, stream1 >@ stream2 >@ [I (idx_op, Gep (ty1, op1, [Ll.Const 0L; op2]))] >@ [I (idx_val, Load (Ptr ty, Ll.Id idx_op))])
+        | _ -> raise (Invalid_argument "index into a non-array object")
+      end
     | Call (id, exp_list) -> 
       let fun_ty, fname = Ctxt.lookup id c in
       begin match fun_ty with
