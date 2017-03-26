@@ -191,7 +191,10 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
         | false -> (cmp_ty TBool, Ll.Const 0L, [])
       end
     | CInt n -> (cmp_ty TInt, Ll.Const n, [])
-    | CStr s -> failwith "cmp_exp cstr unimplemented"
+    | CStr s -> 
+      let string_id = gensym "str" in
+      let length = String.length s in
+      (Ptr (Array (length + 1, I8)), Ll.Gid string_id, [G (string_id, (Array (length + 1, I8), Ll.GString s))])
     | CArr (t, exp_list) -> failwith "cmp_exp carr unimplemented"
 
     | NewArr (t, exp) -> failwith "cmp_exp newarr unimplemented"
@@ -199,8 +202,19 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let t, operand = Ctxt.lookup id c in 
         begin match t with
           | Ll.Ptr ty -> 
-            let id_operand = gensym "id" in
-              (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
+               let id_operand = gensym "id" in
+                (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
+            (*
+            begin match ty with 
+            | Array (_, arr_ty) -> 
+              let id_operand = gensym "id" in
+              let bitcast_op = gensym "bitcast" in
+                (Ptr arr_ty, Ll.Id id_operand, [I (id_operand, Load (t, Ll.Id bitcast_op)); I (bitcast_op, Bitcast (t, operand, Ptr arr_ty ))])
+            | _ -> 
+              let id_operand = gensym "id" in
+                (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
+            end
+             *)
           | _ -> (t, operand, [])
         end
     | Index (exp1, exp2) -> failwith "cmp_exp index unimplemented"
@@ -291,6 +305,18 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let ty, exp_op, exp_s = cmp_exp c exp in
       let uid = gensym "decl" in
       let decl_s = [E (uid, Alloca ty); I ("", Store (ty, exp_op, Ll.Id uid))] in
+       (*
+        begin match ty with
+        | Ptr (Array (_, t)) -> 
+          let bitcast_op = gensym "bitcast" in
+          [
+            E (uid, Alloca (Ptr t));
+            I ("", Store ((Ptr t), Ll.Id bitcast_op, Ll.Id uid));
+            I (bitcast_op, Bitcast (ty, exp_op, (Ptr t)))
+          ]
+        | _ -> [E (uid, Alloca ty); I ("", Store (ty, exp_op, Ll.Id uid))]
+        end in
+        *)
       let new_c = Ctxt.add c id (Ll.Ptr ty, Ll.Id uid) in 
       let stream = exp_s >@ decl_s in 
       (new_c, stream)
@@ -383,7 +409,9 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
         let global_id = v.name in
         begin match v.init.elt with
           | CInt n -> Ctxt.add c v.name (Ll.Ptr (cmp_ty Ast.TInt), Ll.Gid global_id)
-          | CStr s -> Ctxt.add c v.name (Ll.Ptr (cmp_ty (Ast.TRef RString)), Ll.Gid global_id)
+          | CStr s -> 
+            let length = String.length s in
+            Ctxt.add c v.name (Ll.Ptr (Array(length + 1, I8)), Ll.Gid global_id)
           | CNull t -> Ctxt.add c v.name (Ll.Ptr (cmp_ty t), Ll.Gid global_id)
           | CBool b -> Ctxt.add c v.name (Ll.Ptr (cmp_ty Ast.TBool), Ll.Gid global_id)
           | CArr (t, arr) -> Ctxt.add c v.name (Ll.Ptr (cmp_ty (Ast.TRef (RArray t))), Ll.Gid global_id)
@@ -466,7 +494,9 @@ let rec cmp_gexp (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
         | false -> ((cmp_ty Ast.TBool, Ll.GInt 0L), [])
       end
     | CInt n -> ((cmp_ty Ast.TInt, Ll.GInt n), [])
-    | CStr _ -> failwith "cmp_gexp string unimplemented"
+    | CStr s -> 
+      let length = String.length s in
+      (( Array (length + 1, I8), GString s), [])
     | CArr _ -> failwith "cmp_gexp arr unimplemented"
     | _ -> raise (Invalid_argument "cmp_gexp invalid global initializer.")
   end
