@@ -241,7 +241,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
         begin match t with
           | Ll.Ptr ty -> 
               begin match ty with
-                | Array (_, _) -> (t, operand, []) 
+                | Array (_, _)| Struct [I64; Array(_, _)] -> (t, operand, []) 
                 | _ -> 
                   let id_operand = gensym "id" in
                     (ty, Ll.Id id_operand, [I (id_operand, Load (t, operand))])
@@ -335,9 +335,12 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
         | Id id ->
           let t1, op1 = Ctxt.lookup id c in 
           let t2, op2, stream2 = cmp_exp c exp2 in 
-            if (Ptr t1) != t2 then
+            if t1 != (Ptr t2) then
               let bitcast_op = gensym "bitcast" in
-              (c, stream2 >@ [I (bitcast_op, Bitcast (t2, op2, t1))] >@ [I ("",Store (t2, Ll.Id bitcast_op, op1))])
+              begin match t1 with
+                | Ptr t -> (c, stream2 >@ [I (bitcast_op, Bitcast (t2, op2, t))] >@ [I ("",Store (t, Ll.Id bitcast_op, op1))])
+                | _ -> raise (Invalid_argument "stmt id ctxt not a pointer")
+              end
             else
               (c, stream2 >@ [I ("", Store(t2, op2, op1))])
         | Index (e1, e2) -> 
@@ -354,7 +357,7 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
              | _ -> raise (Invalid_argument "index into a non-array object")
              end in
            let bitcast_stream = 
-             if ele_ty != (Ptr val_ty) then
+             if ele_ty != val_ty then
                let bitcast_op = gensym "bitcast" in
                [I (bitcast_op, Bitcast(val_ty, val_op, ele_ty))] >@ [I ("", Store (ele_ty, Ll.Id bitcast_op, Ll.Id idx_op))]
              else
@@ -370,11 +373,14 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let new_c = Ctxt.add c id (Ll.Ptr ty, Ll.Id uid) in 
       let stream = exp_s >@ decl_s in 
       (new_c, stream)
-
     | Ast.Ret None-> (c, [T (Ll.Ret (rt, None))])
     | Ast.Ret Some exp -> 
-      let _, operand, stream =  cmp_exp c exp in
-        (c, stream >@ [T (Ll.Ret (rt, Some operand))])
+      let ty, operand, stream =  cmp_exp c exp in
+        if ty != rt then
+          let bitcast_op = gensym "bitcast" in
+            (c, stream >@ [I (bitcast_op, Bitcast (ty, operand, rt))] >@ [T (Ll.Ret (rt, Some (Ll.Id bitcast_op)))])
+        else
+          (c, stream >@ [T (Ll.Ret (rt, Some operand))])
     | Ast.SCall (id, exp_list) -> 
       let fun_ty, fname = Ctxt.lookup id c in
       begin match fun_ty with
@@ -466,7 +472,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
           | CBool b -> Ctxt.add c v.name (Ll.Ptr (cmp_ty Ast.TBool), Ll.Gid global_id)
           | CArr (t, arr) -> 
             let length = List.length arr in 
-            Ctxt.add c v.name (Ll.Ptr (Array (length, cmp_ty t)), Ll.Gid global_id)
+            Ctxt.add c v.name (Ll.Ptr (Struct [I64; Array (length, cmp_ty t)]), Ll.Gid global_id)
           | _ -> raise (Invalid_argument "not a global expression.")
         end
       | Gfdecl {elt = f; _} -> 
@@ -555,7 +561,12 @@ let rec cmp_gexp (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
           let decl, decl_list = cmp_gexp exp in 
           ((fst acc) @ [decl], decl_list @ (snd acc))
         in List.fold_left cmp_carr_helper ([], []) exp_list
-      in ((Array (List.length exp_list, cmp_ty ty), GArray gdecls), gid_gdecl_list)
+      in ((Struct [I64; Array ((List.length exp_list), cmp_ty ty)], 
+           GStruct [
+                     (I64, GInt (Int64.of_int (List.length exp_list))); 
+                     (Array((List.length exp_list), cmp_ty ty), GArray gdecls)
+                   ]), 
+           gid_gdecl_list)
 
     | _ -> raise (Invalid_argument "cmp_gexp invalid global initializer.")
   end
