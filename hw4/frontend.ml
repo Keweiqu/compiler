@@ -335,8 +335,32 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
         | Id id ->
           let t1, op1 = Ctxt.lookup id c in 
           let t2, op2, stream2 = cmp_exp c exp2 in 
-            (c, stream2 >@ [I ("",Store (t2, op2, op1))])
-        | Index _ -> failwith "cmp_stmt assign index unimplemented"
+            if (Ptr t1) != t2 then
+              let bitcast_op = gensym "bitcast" in
+              (c, stream2 >@ [I (bitcast_op, Bitcast (t2, op2, t1))] >@ [I ("",Store (t2, Ll.Id bitcast_op, op1))])
+            else
+              (c, stream2 >@ [I ("", Store(t2, op2, op1))])
+        | Index (e1, e2) -> 
+           let ty1, op1, stream1 = cmp_exp c e1 in 
+           let ty2, op2, stream2 = cmp_exp c e2 in
+           let val_ty, val_op, val_stream = cmp_exp c exp2 in
+           let idx_op = gensym "idx" in
+           let stream3, ele_ty = 
+             begin match ty1 with
+             | Ptr (Struct [size; Array (_, ty)]) ->
+                (val_stream >@ stream1 >@ stream2 >@ [I (idx_op, Gep (ty1, op1, [Ll.Const 0L; Ll.Const 1L; op2]))], ty)
+             | Ptr Array (size, ty) ->
+                (val_stream >@ stream1 >@ stream2 >@ [I (idx_op, Gep (ty1, op1, [Ll.Const 0L; op2]))], ty)
+             | _ -> raise (Invalid_argument "index into a non-array object")
+             end in
+           let bitcast_stream = 
+             if ele_ty != (Ptr val_ty) then
+               let bitcast_op = gensym "bitcast" in
+               [I (bitcast_op, Bitcast(val_ty, val_op, ele_ty))] >@ [I ("", Store (ele_ty, Ll.Id bitcast_op, Ll.Id idx_op))]
+             else
+               [I ("", Store (val_ty, val_op, Ll.Id idx_op))] in
+           (c, stream3 >@ bitcast_stream)
+
         | _ -> raise (Invalid_argument "cmp_stmt invalid assignment left-hand side.")
       end
     | Ast.Decl (id, exp) -> 
