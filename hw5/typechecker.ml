@@ -64,7 +64,39 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
        TYP_STRUCTLIT rule.
 *)
 let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
-failwith "typecheck_exp not implemented"
+  begin match e.elt with
+  | CNull t -> 
+    begin match t with
+    | TRef _ -> t
+    | _ -> type_error e "typecheck_exp: not a ref type for CNull"
+    end
+  | CBool b -> TBool
+  | CInt n -> TInt
+  | CStr s -> TRef RString
+  | CArr (ty, exps) -> failwith "unimplemented"
+  | CStruct (id, cfields) -> failwith "unimplemented"
+  | Proj (exp, id) -> failwith "unimplemented"
+  | NewArr (t, exp) -> failwith "unimplemented"
+  | Id id -> failwith "unimplemented"
+  | Index (exp1, exp2) -> failwith "unimplemented"
+  | Call (exp, exps) -> failwith "unimplemented"
+  | Bop (op, exp1, exp2) -> 
+    let t1, t2, tret = typ_of_binop op in
+      if (typecheck_exp c exp1) != t1 then
+        type_error exp1 "typecheck_exp: invalid type for binop exp1"
+      else
+        if (typecheck_exp c exp2) != t2 then
+          type_error exp2 "typecheck_exp: invalid type for binop exp2"
+        else
+          tret
+      
+  | Uop (op, exp) ->
+    let t, tret = typ_of_unop op in
+      if (typecheck_exp c exp) != t then
+        type_error exp "typecheck_exp: invalid type for unop exp"
+      else
+        tret
+  end
 
 
 (* statements --------------------------------------------------------------- *)
@@ -102,7 +134,11 @@ failwith "typecheck_stmt not implemented"
     - tc contains the structure definition context
  *)
 let rec typecheck_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ty) : unit =
-failwith "typecheck_ty not implemented"
+  let var, _, _ = l.loc in 
+  if lookup_option var tc != Some t then
+     type_error l "Does not match given type"
+  else
+    ()
 
 let typecheck_tdecl (tc : Tctxt.t) l  (loc : 'a Ast.node) =
   List.iter (fun f -> typecheck_ty loc tc f.ftyp) l
@@ -142,18 +178,45 @@ let rec check_dups fs =
   | [] -> false
   | h :: t -> if List.exists (fun x -> x.fname = h.fname) t then true else check_dups t
 
-let create_struct_ctxt p =
-failwith "create_struct_ctxt not implemented"
+let create_struct_ctxt p : Tctxt.t =
+  let helper (acc:struct_ctxt) (decl:Ast.decl): struct_ctxt = 
+    begin match decl with
+    | Gtdecl tnode -> 
+      let id, fields = tnode.elt in
+        if check_dups fields then 
+          type_error tnode "create_struct_ctxt: tdecl fields contains dup"
+        else
+          tnode.elt::acc
+    | _ -> acc
+    end in
+  { locals = [];
+    globals = [];
+    functions = []; 
+    structs = List.fold_left helper [] p;
+  }
+  
 
 
 let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
   let builtins_context = 
     List.fold_left (fun c (id, t) -> Tctxt.add_function c id t) tc builtins
   in
-failwith "create_function_ctxt undefined"
+    let helper (acc: t) (decl:Ast.decl):t =
+      begin match decl with
+      |Gfdecl fnode ->
+      add_function acc fnode.elt.name (List.map fst fnode.elt.args, fnode.elt.rtyp)
+      | _ -> acc
+      end in
+    List.fold_left helper builtins_context p
 
 let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
-failwith "create_global_ctxt undefined"
+  let helper (acc:t) (decl:Ast.decl) : t =
+    begin match decl with
+    | Gvdecl gnode -> 
+      add_global acc gnode.elt.name (typecheck_exp acc gnode.elt.init)
+    | _ -> acc
+    end in
+  List.fold_left helper tc p 
 
 (* typechecks the whole program in the correct global context --------------- *)
 (* This function implements the TYP_PROG rule of the oat.pdf specification.
