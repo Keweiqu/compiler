@@ -122,7 +122,11 @@ type stmt_type = NoReturn | Return
      block typecheck rules.
 *)
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * stmt_type =
-failwith "typecheck_stmt not implemented"
+  begin match s.elt with
+  | Decl (id, exp) -> 
+    let t = typecheck_exp tc exp in (add_local tc id t, NoReturn)
+  | _ -> failwith "typecheck_stmt unimplemented"
+  end
 
 
 (* well-formed types -------------------------------------------------------- *)
@@ -134,11 +138,42 @@ failwith "typecheck_stmt not implemented"
     - tc contains the structure definition context
  *)
 let rec typecheck_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ty) : unit =
-  let var, _, _ = l.loc in 
-  if lookup_option var tc != Some t then
-     type_error l "Does not match given type"
-  else
-    ()
+  begin match t with
+  | TBool | TInt -> ()
+  | TRef rty -> typecheck_rty l tc rty
+  end
+and typecheck_rty (l : 'a Ast.node) (tc : Tctxt.t) (rt : Ast.rty) : unit =
+  begin match rt with
+  | RString -> ()
+  | RStruct id -> 
+    let fields = lookup_struct_option id tc in
+      begin match fields with
+      | None -> type_error l (String.concat " " ["tyepcheck_rty: ctxt does not contain"; id]) 
+      | Some fs -> 
+        let typecheck_rty_helper (f:Ast.field) : unit =  
+          begin match f.ftyp with
+          | TRef (RStruct id') -> 
+            if id != id' then 
+              typecheck_ty l tc f.ftyp
+            else 
+              ()
+          | _ -> typecheck_ty l tc f.ftyp
+          end in
+        List.iter typecheck_rty_helper fs
+      end
+  | RArray ty -> typecheck_ty l tc ty
+  | RFun fty -> typecheck_fty l tc fty
+  end
+and typecheck_fty (l : 'a Ast.node) (tc : Tctxt.t) (fty : Ast.fty) : unit = 
+  let ty_list, ret_ty = fty in
+    List.iter (fun t -> typecheck_ty l tc t) ty_list;
+    typecheck_ret_ty l tc ret_ty
+and typecheck_ret_ty (l : 'a Ast.node) (tc : Tctxt.t) (ret_ty : Ast.ret_ty) : unit =  
+  begin match ret_ty with
+  | RetVoid -> ()
+  | RetVal ty -> typecheck_ty l tc ty
+  end
+
 
 let typecheck_tdecl (tc : Tctxt.t) l  (loc : 'a Ast.node) =
   List.iter (fun f -> typecheck_ty loc tc f.ftyp) l
@@ -150,9 +185,32 @@ let typecheck_tdecl (tc : Tctxt.t) l  (loc : 'a Ast.node) =
     - typechecks the body of the function (passing in the expected return type
     - checks that the function actually returns
 *)
-let typecheck_fdecl (tc : Tctxt.t) (f : Ast.fdecl) (l : 'a Ast.node)  =
-failwith "typecheck_fdecl unimplemented"
+let rec typecheck_fbody (fbody:Ast.block) (tc:Tctxt.t) (ret_ty:Ast.ret_ty): unit = 
+  begin match fbody with
+  | [] -> ()
+  | h::t -> 
+  let new_tc, _ = typecheck_stmt tc h ret_ty in 
+    typecheck_fbody t new_tc ret_ty
+  end
 
+let typecheck_fdecl (tc : Tctxt.t) (f : Ast.fdecl) (l : 'a Ast.node)  =
+  let fty = lookup_function_option f.name tc in
+    begin match fty with
+    | None -> raise (Invalid_argument (String.concat " " ["undefined symbol"; f.name]))
+    | Some (ty_list, ret_ty) ->
+      let new_tc = 
+        List.fold_left (fun acc (ty, id) -> Tctxt.add_local acc id ty) tc f.args in
+      typecheck_fbody f.body new_tc ret_ty;
+      let exist_fun (snode: Ast.stmt node) : bool = 
+        begin match snode.elt with
+        | Ret _ -> true
+        | _ -> false 
+        end in 
+      if List.exists exist_fun f.body then 
+        ()
+      else 
+        raise (Invalid_argument "function does not have return stmt")
+    end
 
 (* creating the typchecking context ----------------------------------------- *)
 
