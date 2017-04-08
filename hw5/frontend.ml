@@ -149,7 +149,11 @@ and cmp_fty ct (ts,r:Ast.fty) : Ll.fty =
 and cmp_rty ct : Ast.rty -> Ll.ty = function
   | Ast.RString  -> I8
   | Ast.RArray u -> Struct [I64; Array(0, cmp_ty ct u)]
-  (* TODO: add cases for structs and funs *)
+  | Ast.RStruct id -> Namedt id
+    (* let fields  = TypeCtxt.lookup id ct in
+    let tys = List.map (fun a -> cmp_ty ct a.ftyp) fields in
+    Struct tys *)
+  | Ast.RFun fty -> Fun (cmp_fty ct fty)
 
 let typ_of_binop : Ast.binop -> Ast.ty * Ast.ty * Ast.ty = function
   | Add | Mul | Sub | Shl | Shr | Sar | IAnd | IOr -> (TInt, TInt, TInt)
@@ -197,7 +201,17 @@ let oat_alloc_array ct (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
    - make sure to calculate the correct amount of space to allocate!
 *)
 let oat_alloc_struct ct (id:Ast.id) : Ll.ty * operand * stream =
-failwith "oat_alloc_struct unimplemented"
+  let ans_id, struct_id = gensym "struct", gensym "raw_struct" in
+  let ans_ty = cmp_ty ct @@ TRef (RStruct id) in
+  let struct_ty = Ptr I64 in
+  ans_ty, Id ans_id, lift
+    [ struct_id, Call(
+      struct_ty,
+      Gid "oat_malloc",
+      [I64, Ll.Const (Int64.mul 8L (Int64.of_int (List.length (TypeCtxt.lookup id ct))))])
+    ; ans_id, Bitcast(struct_ty, Id struct_id, ans_ty) ]
+  
+
 
 let str_arr_ty s = Array(1 + String.length s, I8)
 let i1_op_of_bool b   = Ll.Const (if b then 1L else 0L)
@@ -261,7 +275,7 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
       | Ast.Bitnot -> Binop (Xor, I64, op, i64_op_of_int (-1)) in
     cmp_ty tc ret_ty, Id ans_id, code >:: I (ans_id, cmp_uop op uop)
 
-  (* TASK: Modify this case to handle function identifiers as values.
+  (* DONE: Modify this case to handle function identifiers as values.
      Hint:  it should be very straightforward, assuming that the context
             is properly initialized
   *)
@@ -270,12 +284,19 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
         let t, op = Ctxt.lookup id c in
         begin match t with
           | Ptr t ->
-            let ans_id = gensym id in
-            t, Id ans_id, [I(ans_id, Load(Ptr t, op))]
+            begin match t with
+              | Fun fty -> 
+                begin match Ctxt.lookup_function_option id c with
+                  | None -> failwith "cmp_exp: cannot find id in function context"
+                  | Some (fty, fop) -> fty, fop, []
+                end
+              | _ ->             
+                let ans_id = gensym id in
+                  t, Id ans_id, [I(ans_id, Load(Ptr t, op))]
+            end
           | _ -> failwith "broken invariant: identifier not a pointer"
         end
         
-
   | Ast.Index (e, i) ->
     let ans_ty, ptr_op, code = cmp_exp_lhs tc c exp in
     let ans_id = gensym "index" in
@@ -453,7 +474,7 @@ let get_struct_defns (p:Ast.prog) : TypeCtxt.t =
     | _ -> ts) p TypeCtxt.empty
 
 
-(* TASK (FIRST):  Complete this function that creates the "compiled" version of 
+(* DONE (FIRST):  Complete this function that creates the "compiled" version of 
    the F context.  It adds each function identifer to the context at an
    appropriately translated type.  
      Hint: use cmp_ty and take a look at how the builtin functions are
@@ -462,7 +483,14 @@ let get_struct_defns (p:Ast.prog) : TypeCtxt.t =
    NOTE: The Gid of a function is just its source name
 *)
 let cmp_function_ctxt (tc : TypeCtxt.t) (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
-  failwith "todo: cmp_function_ctxt not finished"
+  let helper (acc:Ctxt.t) (decl:Ast.decl) : Ctxt.t = 
+    begin match decl with
+    | Gfdecl fdecl -> 
+      let args_ty = List.map (fun a -> fst a) fdecl.elt.args in
+        Ctxt.add acc fdecl.elt.name (Ptr (Fun (cmp_fty tc (args_ty, fdecl.elt.rtyp))), Ll.Gid fdecl.elt.name)
+    | _ -> acc
+    end
+  in List.fold_left helper c p
 
 (* Populate a context with bindings for global variables 
    mapping OAT identifiers to LLVMlite gids and their types.
