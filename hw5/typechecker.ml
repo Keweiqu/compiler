@@ -89,7 +89,6 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
           type_error exp2 "typecheck_exp: invalid type for binop exp2"
         else
           tret
-      
   | Uop (op, exp) ->
     let t, tret = typ_of_unop op in
       if (typecheck_exp c exp) != t then
@@ -123,9 +122,71 @@ type stmt_type = NoReturn | Return
 *)
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * stmt_type =
   begin match s.elt with
+  | Assn (lhs, rhs) ->
+    let lhs_ty = typecheck_exp tc lhs in
+    let rhs_ty = typecheck_exp tc rhs in
+      if lhs_ty != rhs_ty then
+        type_error s "typecheck_stmt: assignment lhs and rhs do not match"
+      else
+        (tc, NoReturn)
   | Decl (id, exp) -> 
     let t = typecheck_exp tc exp in (add_local tc id t, NoReturn)
+  | Ret exp -> 
+    begin match exp with
+    | None -> 
+      if to_ret = RetVoid then
+        (tc, Return)
+      else 
+        type_error s "typecheck_stmt: void return returns value"
+    | Some e -> 
+      let e_ty = typecheck_exp tc e in
+        if (RetVal e_ty) = to_ret then
+          (tc, Return)
+        else
+          type_error s "typecheck_stmt: return type does not match"
+    end
+  | SCall (exp, exp_list) -> 
+    begin match exp.elt with
+    | Id id -> 
+      let fty = lookup_function_option id tc in
+        begin match fty with
+        | None -> type_error s "typecheck_stmt: undefined function"
+        | Some (ty_list, ret_ty) -> 
+          if ret_ty = RetVoid then
+            let _ = List.iter2 (fun exp expected_rt -> 
+              if (typecheck_exp tc exp) <> expected_rt then
+               type_error s "typecheck_stmt: function argument type not match" else ()) exp_list ty_list in
+            (tc, NoReturn)
+          else 
+            type_error s "typecheck_stmt: scall function not return void"
+        end
+    | _ -> raise (Invalid_argument "typecheck_stmt: fun first exp should be id")
+    end
+  | If (exp, b1, b2) ->
+    let exp_ty = typecheck_exp tc exp in 
+      if exp_ty <> TBool then
+        type_error exp "typecheck_stmt: if condition must be a bool"
+      else 
+        let _, b1_stmt_ty = typecheck_block b1 tc to_ret NoReturn in 
+        let _, b2_stmt_ty = typecheck_block b2 tc to_ret NoReturn in 
+          if b1_stmt_ty = Return && b2_stmt_ty = Return then
+            (tc, Return)
+          else 
+            (tc, NoReturn)
   | _ -> failwith "typecheck_stmt unimplemented"
+  end
+and typecheck_block (fbody:Ast.block) (tc:Tctxt.t) (ret_ty:Ast.ret_ty) (s_ty:stmt_type): Tctxt.t * stmt_type = 
+  begin match fbody with
+  | [] -> (tc, s_ty)
+  | h::t -> 
+  let new_tc, new_ty = typecheck_stmt tc h ret_ty in
+    if s_ty = Return then 
+      if new_ty = Return then
+        type_error h "typecheck_block: early return error"
+      else
+        typecheck_block t tc ret_ty s_ty
+    else 
+      typecheck_block t new_tc ret_ty new_ty
   end
 
 
@@ -185,31 +246,23 @@ let typecheck_tdecl (tc : Tctxt.t) l  (loc : 'a Ast.node) =
     - typechecks the body of the function (passing in the expected return type
     - checks that the function actually returns
 *)
-let rec typecheck_fbody (fbody:Ast.block) (tc:Tctxt.t) (ret_ty:Ast.ret_ty): unit = 
-  begin match fbody with
-  | [] -> ()
-  | h::t -> 
-  let new_tc, _ = typecheck_stmt tc h ret_ty in 
-    typecheck_fbody t new_tc ret_ty
-  end
-
 let typecheck_fdecl (tc : Tctxt.t) (f : Ast.fdecl) (l : 'a Ast.node)  =
   let fty = lookup_function_option f.name tc in
     begin match fty with
     | None -> raise (Invalid_argument (String.concat " " ["undefined symbol"; f.name]))
     | Some (ty_list, ret_ty) ->
       let new_tc = 
-        List.fold_left (fun acc (ty, id) -> Tctxt.add_local acc id ty) tc f.args in
-      typecheck_fbody f.body new_tc ret_ty;
-      let exist_fun (snode: Ast.stmt node) : bool = 
-        begin match snode.elt with
-        | Ret _ -> true
-        | _ -> false 
-        end in 
-      if List.exists exist_fun f.body then 
+        List.fold_left (fun acc (ty, id) -> 
+          begin match ty with
+          | TRef (RFun fty) -> Tctxt.add_function acc id fty
+          | _ -> Tctxt.add_local acc id ty
+          end
+        ) tc f.args in
+        let _, stmt_type = typecheck_block f.body new_tc ret_ty NoReturn in
+      if stmt_type = Return then 
         ()
       else 
-        raise (Invalid_argument "function does not have return stmt")
+        type_error l "typecheck_fdecl: function does not have return stmt"
     end
 
 (* creating the typchecking context ----------------------------------------- *)
@@ -237,21 +290,21 @@ let rec check_dups fs =
   | h :: t -> if List.exists (fun x -> x.fname = h.fname) t then true else check_dups t
 
 let create_struct_ctxt p : Tctxt.t =
-  let helper (acc:struct_ctxt) (decl:Ast.decl): struct_ctxt = 
+  let helper (acc:Tctxt.t) (decl:Ast.decl): Tctxt.t = 
     begin match decl with
     | Gtdecl tnode -> 
       let id, fields = tnode.elt in
-        if check_dups fields then 
-          type_error tnode "create_struct_ctxt: tdecl fields contains dup"
-        else
-          tnode.elt::acc
+        let ty = lookup_struct_option id acc in
+          if ty <> None then
+            type_error tnode "create_struct_ctxt: struct duplicate"
+          else
+            if check_dups fields then 
+              type_error tnode "create_struct_ctxt: tdecl fields contains dup"
+            else
+              add_struct acc id fields
     | _ -> acc
     end in
-  { locals = [];
-    globals = [];
-    functions = []; 
-    structs = List.fold_left helper [] p;
-  }
+  List.fold_left helper { locals = []; globals = []; functions = []; structs = [];} p
   
 
 
