@@ -280,23 +280,22 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
             is properly initialized
   *)
   | Ast.Id id ->
-    
-        let t, op = Ctxt.lookup id c in
+     let t, op = Ctxt.lookup id c in
+     begin match t with
+     | Ptr t ->
         begin match t with
-          | Ptr t ->
-            begin match t with
-              | Fun fty -> 
-                begin match Ctxt.lookup_function_option id c with
-                  | None -> failwith "cmp_exp: cannot find id in function context"
-                  | Some (fty, fop) -> fty, fop, []
-                end
-              | _ ->             
-                let ans_id = gensym id in
-                  t, Id ans_id, [I(ans_id, Load(Ptr t, op))]
-            end
-          | _ -> failwith "broken invariant: identifier not a pointer"
+        | Fun fty -> 
+           begin match Ctxt.lookup_function_option id c with
+           | None -> failwith "cmp_exp: cannot find id in function context"
+           | Some (fty, fop) -> fty, fop, []
+           end
+        | _ ->             
+           let ans_id = gensym id in
+           t, Id ans_id, [I(ans_id, Load(Ptr t, op))]
         end
-        
+     | _ -> failwith "broken invariant: identifier not a pointer"
+     end
+
   | Ast.Index (e, i) ->
     let ans_ty, ptr_op, code = cmp_exp_lhs tc c exp in
     let ans_id = gensym "index" in
@@ -324,16 +323,30 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
     let arr_ty, arr_op, alloc_code = oat_alloc_array tc elt_ty size_op in
     arr_ty, arr_op, size_code >@ alloc_code
 
-  (* TASK:  Complete this code that compiles struct expressions.
+  (* DONE:  Complete this code that compiles struct expressions.
       For each field component of the struct
        - use the TypeCtxt operations to compute getelementptr indicex
        - compile the initializer expression
        - store the resulting value into the structure
    *)
   | Ast.CStruct (id, l) ->
-    failwith "TODO: constant structs"                       
+     let struct_ty, struct_op, struct_stream = oat_alloc_struct tc id in
+     let helper (acc:stream) (field: Ast.cfield) : stream = 
+       let index = TypeCtxt.index_of_field id field.cfname tc in
+       let field_ty = cmp_ty tc (TypeCtxt.lookup_field id field.cfname tc) in
+       
+       let idx_uid, bitcast_uid = gensym "struct", gensym "bitcast" in
+       let exp_ty, exp_op, exp_stream = cmp_exp tc c field.cfinit in
+       acc >@ exp_stream >@
+         (lift [
+              (idx_uid, Gep (struct_ty, struct_op, [Const 0L; Const (Int64.of_int index)]))
+            ; (bitcast_uid, Bitcast (Ptr field_ty, Ll.Id idx_uid, Ptr exp_ty))
+            ; ("", Store (exp_ty, exp_op, Ll.Id bitcast_uid))
+         ]) in 
+     let stream = List.fold_left helper [] l in
+     (struct_ty, struct_op, struct_stream >@ stream)
 
-  | Ast.Proj (e, id) ->
+ | Ast.Proj (e, id) ->
     let ans_ty, ptr_op, code = cmp_exp_lhs tc c exp in
     let ans_id = gensym "proj" in
     ans_ty, Id ans_id, code >:: I(ans_id, Load(Ptr ans_ty, ptr_op))
@@ -351,7 +364,17 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
      Ast.proj case of the cmp_exp function (above).
   *)
   | Ast.Proj (e, i) ->
-  failwith "TODO: field projection as left-hand side"
+     let e_ty, e_op, e_stream = cmp_exp tc c e in
+     begin match e_ty with
+     | Ptr (Namedt tid) -> 
+        let field_ty = cmp_ty tc (TypeCtxt.lookup_field tid i tc) in
+        let index = TypeCtxt.index_of_field tid i tc in
+        let idx_uid = gensym "lhs" in
+        (field_ty,
+         Ll.Id idx_uid,
+         e_stream >@ [I (idx_uid, Gep (e_ty, e_op, [Const 0L; Const (Int64.of_int index)]))])
+     | _ -> failwith "invalid lhs for projection"
+       end
 
   | Ast.Index (e, i) ->
     let arr_ty, arr_op, arr_code = cmp_exp tc c e in
@@ -573,8 +596,15 @@ let rec cmp_gexp c (tc : TypeCtxt.t) (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.
 
   (* TASK: Complete this code that generates the global initializers for a struct. *)
   | CStruct (id, cs) ->
-    failwith "TODO: handle global struct declarations"                             
-
+     let elts, gs = List.fold_right
+        (fun cst (elts, gs) ->
+          let gd, gs' = cmp_gexp c tc cst.cfinit in
+          gd::elts, gs' @ gs) cs ([], [])
+     in
+     let struct_ty = Namedt id in 
+     let gid = gensym "global_struct" in
+     let struct_i = GStruct elts in
+     (Ptr struct_ty, GGid gid), (gid, (struct_ty, struct_i))::gs
 
   | _ -> failwith "bad global initializer"
 
