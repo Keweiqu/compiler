@@ -46,12 +46,50 @@ let terminator_uses (t:terminator) : UidS.t = uids_of_ops (terminator_ops t)
       in[n] = flow n out[n]
 
    (In our representation, there is one flow function for instructions
-   and another for terminators.                                               *)
+   and another for terminators.                                               
+*)
+
+let add_op (op: Ll.operand) (set:UidS.t) : UidS.t =
+  begin match op with
+  | Id uid -> UidS.add uid set
+  | _ -> set
+  end
+ 
 let insn_flow (u,i:uid * insn) (out:UidS.t) : UidS.t =
-failwith "TODO HW6: Liveness.insn_flow not implemented"
+  begin match i with
+  | Binop (_, _, op1, op2) -> 
+    let removed = UidS.remove u out in
+    let set1 = add_op op1 removed in
+    let set2 = add_op op2 set1 in 
+      set2
+  | Alloca _ -> UidS.remove u out
+  | Load (_, op) -> add_op op (UidS.remove u out)
+  | Store (_, op1, op2) ->
+    let set1 = add_op op1 out in
+      add_op op2 set1
+  | Icmp (_, _, op1, op2) ->
+    let removed = UidS.remove u out in
+    let set1 = add_op op1 removed in
+    let set2 = add_op op2 set1 in
+      set2
+  | Call (_, op, args) ->
+    let removed = UidS.remove u out in
+    let set1 = add_op op removed in
+    List.fold_left (fun acc (ty,op) -> add_op op acc) set1 args     
+  | Bitcast (_, op, _) -> add_op op (UidS.remove u out)
+  | Gep (_, op, op_list) ->
+    let removed = UidS.remove u out in
+    let set1 = add_op op removed in
+    List.fold_left (fun acc op -> add_op op acc) set1 op_list
+  end
 
 let terminator_flow (t:terminator) (out:UidS.t) : UidS.t =
-failwith "TODO HW6: Liveness.terminator_flow not implemented"
+  begin match t with
+  | Ret (_, None) -> out
+  | Ret (_, Some op) -> add_op op out
+  | Br _ -> out
+  | Cbr (op, _, _) -> add_op op out
+  end
 
 module Fact =
   struct
