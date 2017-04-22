@@ -553,7 +553,68 @@ let simple_layout (f:Ll.fdecl) (_:liveness) : layout =
 *)
 
 let live_layout (f:Ll.fdecl) (live:liveness) : layout =
-  failwith "HW6 TODO: Backend.live_layout not implemented"
+  let all = LocSet.(caller_save
+                        |> remove (Alloc.LReg Rax) 
+                        |> remove (Alloc.LReg Rcx)) in
+  let pal = ref LocSet.(caller_save
+                        |> remove (Alloc.LReg Rax) 
+                        |> remove (Alloc.LReg Rcx)) in
+  let n_spill = ref 0 in
+  let next_loc () =
+    if LocSet.is_empty !pal
+    then (incr n_spill; Alloc.LStk (- !n_spill))
+    else (let l = LocSet.choose !pal in
+          pal := LocSet.remove l !pal; l)
+  in
+  let used_fn lo uid = 
+    let alive = UidSet.elements (live uid) in
+    let used = List.fold_left (fun acc uid ->
+                                try let loc = List.assoc uid lo in
+                                    begin match loc with
+                                    | Alloc.LReg reg -> (Alloc.LReg reg)::acc
+                                    | _ -> acc
+                                    end
+                                with Not_found -> acc
+                              ) [] alive in
+    LocSet.of_list used
+  in
+  let update_availble used = 
+    let avail = LocSet.diff all used in
+    pal := avail
+  in
+  let lo =
+    fold_fdecl
+      (fun lo (x, _) ->
+        (*
+        try
+          let id, _ = List.hd (fst f.cfg).insns in
+          let alive = live id in
+          if UidSet.mem x alive
+          then (x, next_loc())::lo
+          else (x, Alloc.Null)::lo
+       with Failure _ -> *) (x, next_loc())::lo)
+      
+      (fun lo l -> (l, Alloc.LLbl (Platform.mangle l))::lo)
+      (fun lo (x, i) ->
+        let alive = UidSet.elements (live x) in
+        let used = used_fn lo x in 
+        update_availble used;
+        (*
+        let new_lo = 
+          List.fold_left (fun acc uid -> 
+                         try 
+                           let _ = List.assoc uid acc in acc with Not_found -> (uid, next_loc())::acc
+                         ) lo alive in
+         *)
+        if insn_assigns i 
+        then (x, next_loc())::lo
+        else (x, Alloc.LVoid)::lo
+      )
+      (fun a _ -> a)
+      [] f in
+  { uid_loc = (fun x -> List.assoc x lo)
+  ; spill_bytes = 8 * !n_spill
+  }
 
 (* register allocation options ---------------------------------------------- *)
 
@@ -597,9 +658,23 @@ let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   [L (Platform.mangle g, true)]
   >@ lift Asm.[ Pushq, [~%Rbp]
               ; Movq,  [~%Rsp; ~%Rbp] ]
+          (*
+  >@ lift Asm.[ Pushq, [~%Rbx]
+              ; Pushq, [~%R12]
+              ; Pushq, [~%R13]
+              ; Pushq, [~%R14]
+              ; Pushq, [~%R15]]
+           *)
   >@ (if layout.spill_bytes <= 0 then [] else
       lift Asm.[ Subq,  [~$(layout.spill_bytes); ~%Rsp] ])
   >@ compile_fbody tdecls afdecl
+                   (*
+  >@ lift Asm.[Movq, [Ind3 (Lit (Int64.neg 0L), Rbp); ~%Rbx]
+     ; Movq, [Ind3 (Lit (Int64.neg 4L), Rbp); ~%R12]
+     ; Movq, [Ind3 (Lit (Int64.neg 8L), Rbp); ~%R13]
+     ; Movq, [Ind3 (Lit (Int64.neg 12L), Rbp); ~%R14]
+     ; Movq, [Ind3 (Lit (Int64.neg 16L), Rbp); ~%R15]]
+                    *)
 
 (* compile_gdecl ------------------------------------------------------------ *)
 
