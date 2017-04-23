@@ -1,0 +1,125 @@
+int program(int argc, string[] argv){
+  var aa = 3;
+  var ab = 3;
+  var ac = 3;
+  var ad = 3;
+  var ae = 3;
+  var af = 3;
+  var ag = 3;
+  var ah = 3;
+  var ai = 3;
+  var aj = 3;
+
+  var compute = 0;
+  for (var i = 0; i < 30000000; i = i + 1;) {
+    for (var j = 0; j < 3; j = j + 1;) {
+      for (var k = 0; k < 3; k = k + 1;) {
+        var a = 3 + j;
+        var b = 4 + j;
+	var c = 7 + j;
+	var d = 10 + j;
+        if (i < 10000000) {
+	  compute = a + b;
+          if (j == 0) {
+	    compute = compute + c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+	  } else if (j == 1) {
+	    compute = compute - c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+
+	  } else {
+	    compute = compute * c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+	  }
+
+        } else if (i < 20000000) {
+          compute = a - b;
+          if (j == 0) {
+	    compute = compute + c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+	  } else if (j == 1) {
+	    compute = compute - c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+
+	  } else {
+	    compute = compute * c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+	  }
+
+
+        } else {
+          compute = a * b;
+          if (j == 0) {
+	    compute = compute + c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+	  } else if (j == 1) {
+	    compute = compute - c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+
+	  } else {
+	    compute = compute * c;
+	    if (k == 0 ) {
+	      compute = compute + d;
+	    } else if (k == 1) {
+	      compute = compute - d;
+	    } else {
+	      compute = compute * d;
+	    }
+	  }	  
+        }
+      }
+    }
+  } 
+
+
+  return compute;
+}
+

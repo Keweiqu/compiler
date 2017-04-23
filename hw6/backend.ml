@@ -596,16 +596,8 @@ let live_layout (f:Ll.fdecl) (live:liveness) : layout =
       
       (fun lo l -> (l, Alloc.LLbl (Platform.mangle l))::lo)
       (fun lo (x, i) ->
-        let alive = UidSet.elements (live x) in
         let used = used_fn lo x in 
         update_availble used;
-        (*
-        let new_lo = 
-          List.fold_left (fun acc uid -> 
-                         try 
-                           let _ = List.assoc uid acc in acc with Not_found -> (uid, next_loc())::acc
-                         ) lo alive in
-         *)
         if insn_assigns i 
         then (x, next_loc())::lo
         else (x, Alloc.LVoid)::lo
