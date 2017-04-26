@@ -139,7 +139,7 @@ let assert_quality fn ll_ast =
   let asm_ast = compile_prog ll_ast in
   let (h_default,size_default) = histogram_of_prog asm_ast in
   let score_default = summary h_default in
-  let score = (score_opt - score_default) + 2 * (size_default - size_opt) in
+  let score = (score_opt - score_default) + 3 * (size_default - size_opt) in
   let _ = Platform.verb @@
     Printf.sprintf "opt: %5d %5d  none: %5d %5d = score %5d for %s\n" score_opt size_opt score_default size_default score fn
   in

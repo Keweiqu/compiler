@@ -319,7 +319,6 @@ let need_preamble (fbody:Alloc.fbody) : bool =
                                             | _ -> false
                                             end
                                         ) false (LocSet.elements locset) in
-                       Printf.printf "not all regs: %B\n" has_stack;
                        let has_alloca = 
                          begin match ins with
                          | Alloc.Alloca _ -> true
@@ -710,7 +709,6 @@ let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let liveness = !liveness_fn f in
   let layout = !layout_fn f liveness in
   let afdecl = alloc_fdecl layout liveness f in
-  Printf.printf "%B\n" (need_preamble afdecl);
   let preamble = 
     if need_preamble afdecl then
       lift Asm.[ Pushq, [~%Rbp]
