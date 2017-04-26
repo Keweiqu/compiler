@@ -151,9 +151,30 @@ let arg_loc (n:int) : Alloc.loc =
 
 let alloc_fdecl (layout:layout) (liveness:liveness) (f:Ll.fdecl) : Alloc.fbody =
   let dst  = List.map layout.uid_loc f.param in
+  (*
+  List.iter (fun x -> 
+              begin match x with
+              | Alloc.LVoid -> Printf.printf "not alive\n"
+              | _ -> Printf.printf "alive\n"
+              end
+            ) dst;
+  List.iter (fun x -> Printf.printf "%s" x) f.param;
+   *)
   let tdst = List.combine (fst f.fty) dst in
-  let movs = List.mapi (fun i (t,x) -> x, t, Alloc.Loc (arg_loc i)) tdst in
-  (Alloc.PMov movs, LocSet.of_list dst)
+  let dst_filter = List.filter (fun loc -> 
+                                 begin match loc with 
+                                 | Alloc.LVoid -> false
+                                 | _ -> true
+                                 end
+                               ) dst in
+  let tdst_filter = List.filter (fun (t, loc) ->
+                                  begin match loc with 
+                                  | Alloc.LVoid -> false
+                                  | _ -> true
+                                  end
+                                ) tdst in
+  let movs = List.mapi (fun i (t,x) -> x, t, Alloc.Loc (arg_loc i)) tdst_filter in
+  (Alloc.PMov movs, LocSet.of_list dst_filter)
   :: Alloc.of_cfg layout.uid_loc Platform.mangle liveness f.cfg
 
 (* compiling operands  ------------------------------------------------------ *)
@@ -216,6 +237,11 @@ let compile_pmov live (ol:(Alloc.loc * Ll.ty * Alloc.operand) list) : x86stream 
 (* compiling call  ---------------------------------------------------------- *)
 
 let compile_call live (fo:Alloc.operand) (os:(ty * Alloc.operand) list) : x86stream = 
+  (*
+  Printf.printf "=================Compile call===================\n";
+  List.iter (fun x -> Printf.printf "%s " x) (LocSet.elements live);
+  Printf.printf "=================Compile call===================\n";
+   *)
   let oreg, ostk, _ = 
     List.fold_left (fun (oreg, ostk, i) (t, o) ->
         match arg_reg i with
@@ -275,8 +301,35 @@ let compile_getelementptr tdecls (t:Ll.ty)
 
 
 (* compiling instructions within function bodies ---------------------------- *)
-
+let need_preamble (fbody:Alloc.fbody) : bool = 
+  if List.length fbody = 0 then
+    false
+  else
+    List.fold_left (fun acc (ins, locset) ->
+                     if acc = true then
+                       true
+                     else
+                       let has_stack = 
+                         List.fold_left (fun acc loc ->
+                                          if acc = true then
+                                            true
+                                          else
+                                            begin match loc with
+                                            | Alloc.LStk n -> true
+                                            | _ -> false
+                                            end
+                                        ) false (LocSet.elements locset) in
+                       Printf.printf "not all regs: %B\n" has_stack;
+                       let has_alloca = 
+                         begin match ins with
+                         | Alloc.Alloca _ -> true
+                         | _ -> false
+                         end in
+                       has_stack || has_alloca
+                 ) false fbody
+                 
 let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
+  let need_postamble = need_preamble af in
   let rec loop (af:Alloc.fbody) (outstream:x86stream) : x86stream =
     let cb = function
       | Ll.Add ->  Addq | Ll.Sub ->  Subq | Ll.Mul ->  Imulq
@@ -390,19 +443,27 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
                else lift Asm.[ Movq, [~%Rax; co (Loc x)] ]) )
 
     | (Ret (_,None), _)::rest ->
+       let postamble = 
+         if need_postamble then
+           lift Asm.[ Movq, [~%Rbp; ~%Rsp]
+                    ; Popq, [~%Rbp]
+                    ; Retq, []]
+         else lift Asm.[Retq, []] in
        loop rest @@ 
          ( outstream
-           >@ lift Asm.[ Movq, [~%Rbp; ~%Rsp]
-                       ; Popq, [~%Rbp]
-                       ; Retq, [] ] )
+           >@ postamble )
 
     | (Ret (_,Some o), _)::rest ->
+       let postamble = 
+         if need_postamble then
+           lift Asm.[ Movq, [~%Rbp; ~%Rsp]
+                    ; Popq, [~%Rbp]
+                    ; Retq, []]
+         else lift Asm.[Retq, []] in
        loop rest @@ 
          ( outstream
            >@ emit_mov (co o) (Reg Rax)
-           >@ lift Asm.[ Movq, [~%Rbp; ~%Rsp]
-                       ; Popq, [~%Rbp]
-                       ; Retq, [] ] )
+           >@ postamble )
 
     | (Br (LLbl l), _)::rest ->
        loop rest @@ 
@@ -428,7 +489,7 @@ let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
   loop af []
 
 
-(* compile_fdecl ------------------------------------------------------------ *)
+(* compile_fdecl------------------------------------------------------------ *)
 
 (* Processes a function declaration by processing each of the subcomponents
    in turn:
@@ -585,14 +646,15 @@ let live_layout (f:Ll.fdecl) (live:liveness) : layout =
   let lo =
     fold_fdecl
       (fun lo (x, _) ->
-        (*
         try
-          let id, _ = List.hd (fst f.cfg).insns in
+          let id, ins = List.hd (fst f.cfg).insns in
           let alive = live id in
-          if UidSet.mem x alive
+          let use = Liveness.insn_uses ins in
+          let inset = UidSet.union alive use in
+          if UidSet.mem x inset
           then (x, next_loc())::lo
-          else (x, Alloc.Null)::lo
-       with Failure _ -> *) (x, next_loc())::lo)
+          else (x, Alloc.LVoid)::lo
+       with Failure _ -> (x, next_loc())::lo)
       
       (fun lo l -> (l, Alloc.LLbl (Platform.mangle l))::lo)
       (fun lo (x, i) ->
@@ -641,32 +703,24 @@ let set_regalloc name =
   | "live"   -> live_layout
   | _ -> failwith "impossible arg"
 
+
 (* Compile a function declaration using the chosen liveness analysis
    and register allocation strategy. *)
 let compile_fdecl tdecls (g:gid) (f:Ll.fdecl) : x86stream =
   let liveness = !liveness_fn f in
   let layout = !layout_fn f liveness in
   let afdecl = alloc_fdecl layout liveness f in
+  Printf.printf "%B\n" (need_preamble afdecl);
+  let preamble = 
+    if need_preamble afdecl then
+      lift Asm.[ Pushq, [~%Rbp]
+               ; Movq,  [~%Rsp; ~%Rbp] ] 
+    else [] in
   [L (Platform.mangle g, true)]
-  >@ lift Asm.[ Pushq, [~%Rbp]
-              ; Movq,  [~%Rsp; ~%Rbp] ]
-          (*
-  >@ lift Asm.[ Pushq, [~%Rbx]
-              ; Pushq, [~%R12]
-              ; Pushq, [~%R13]
-              ; Pushq, [~%R14]
-              ; Pushq, [~%R15]]
-           *)
+  >@ preamble
   >@ (if layout.spill_bytes <= 0 then [] else
       lift Asm.[ Subq,  [~$(layout.spill_bytes); ~%Rsp] ])
   >@ compile_fbody tdecls afdecl
-                   (*
-  >@ lift Asm.[Movq, [Ind3 (Lit (Int64.neg 0L), Rbp); ~%Rbx]
-     ; Movq, [Ind3 (Lit (Int64.neg 4L), Rbp); ~%R12]
-     ; Movq, [Ind3 (Lit (Int64.neg 8L), Rbp); ~%R13]
-     ; Movq, [Ind3 (Lit (Int64.neg 12L), Rbp); ~%R14]
-     ; Movq, [Ind3 (Lit (Int64.neg 16L), Rbp); ~%R15]]
-                    *)
 
 (* compile_gdecl ------------------------------------------------------------ *)
 

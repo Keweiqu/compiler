@@ -19,7 +19,7 @@ int program(int argc, string[] argv){
 	var c = 7 + j;
 	var d = 10 + j;
         if (i < 10000000) {
-	  compute = a + b;
+	  compute = compute + a + b;
           if (j == 0) {
 	    compute = compute + c;
 	    if (k == 0 ) {
