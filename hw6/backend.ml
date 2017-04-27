@@ -151,15 +151,6 @@ let arg_loc (n:int) : Alloc.loc =
 
 let alloc_fdecl (layout:layout) (liveness:liveness) (f:Ll.fdecl) : Alloc.fbody =
   let dst  = List.map layout.uid_loc f.param in
-  (*
-  List.iter (fun x -> 
-              begin match x with
-              | Alloc.LVoid -> Printf.printf "not alive\n"
-              | _ -> Printf.printf "alive\n"
-              end
-            ) dst;
-  List.iter (fun x -> Printf.printf "%s" x) f.param;
-   *)
   let tdst = List.combine (fst f.fty) dst in
   let dst_filter = List.filter (fun loc -> 
                                  begin match loc with 
@@ -173,8 +164,13 @@ let alloc_fdecl (layout:layout) (liveness:liveness) (f:Ll.fdecl) : Alloc.fbody =
                                   | _ -> true
                                   end
                                 ) tdst in
-  let movs = List.mapi (fun i (t,x) -> x, t, Alloc.Loc (arg_loc i)) tdst_filter in
-  (Alloc.PMov movs, LocSet.of_list dst_filter)
+  let movs = List.mapi (fun i (t,x) -> x, t, Alloc.Loc (arg_loc i)) tdst in
+  let movs_filter = List.filter (fun (x, _, _) ->
+                                  begin match x with
+                                  | Alloc.LVoid -> false
+                                  | _ -> true
+                                  end) movs in
+  (Alloc.PMov movs_filter, LocSet.of_list dst_filter)
   :: Alloc.of_cfg layout.uid_loc Platform.mangle liveness f.cfg
 
 (* compiling operands  ------------------------------------------------------ *)
@@ -237,11 +233,6 @@ let compile_pmov live (ol:(Alloc.loc * Ll.ty * Alloc.operand) list) : x86stream 
 (* compiling call  ---------------------------------------------------------- *)
 
 let compile_call live (fo:Alloc.operand) (os:(ty * Alloc.operand) list) : x86stream = 
-  (*
-  Printf.printf "=================Compile call===================\n";
-  List.iter (fun x -> Printf.printf "%s " x) (LocSet.elements live);
-  Printf.printf "=================Compile call===================\n";
-   *)
   let oreg, ostk, _ = 
     List.fold_left (fun (oreg, ostk, i) (t, o) ->
         match arg_reg i with
@@ -301,32 +292,40 @@ let compile_getelementptr tdecls (t:Ll.ty)
 
 
 (* compiling instructions within function bodies ---------------------------- *)
+let layout_name : string ref =
+  ref "none"
+
 let need_preamble (fbody:Alloc.fbody) : bool = 
-  if List.length fbody = 0 then
-    false
+  true
+  (*
+  if !layout_name <> "live" then
+    true
   else
-    List.fold_left (fun acc (ins, locset) ->
-                     if acc = true then
-                       true
-                     else
-                       let has_stack = 
-                         List.fold_left (fun acc loc ->
-                                          if acc = true then
-                                            true
-                                          else
-                                            begin match loc with
-                                            | Alloc.LStk n -> true
-                                            | _ -> false
-                                            end
-                                        ) false (LocSet.elements locset) in
-                       let has_alloca = 
-                         begin match ins with
-                         | Alloc.Alloca _ -> true
-                         | _ -> false
-                         end in
-                       has_stack || has_alloca
-                 ) false fbody
-                 
+    if List.length fbody = 0 then
+      false
+    else
+      List.fold_left (fun acc (ins, locset) ->
+                       if acc = true then
+                         true
+                       else
+                         let has_stack = 
+                           List.fold_left (fun acc loc ->
+                                            if acc = true then
+                                              true
+                                            else
+                                              begin match loc with
+                                              | Alloc.LStk n -> true
+                                              | _ -> false
+                                              end
+                                          ) false (LocSet.elements locset) in
+                         let has_alloca = 
+                           begin match ins with
+                           | Alloc.Alloca _ -> true
+                           | _ -> false
+                           end in
+                         has_stack || has_alloca
+                     ) false fbody
+   *)
 let compile_fbody tdecls (af:Alloc.fbody) : x86stream =
   let need_postamble = need_preamble af in
   let rec loop (af:Alloc.fbody) (outstream:x86stream) : x86stream =
@@ -653,8 +652,19 @@ let live_layout (f:Ll.fdecl) (live:liveness) : layout =
           if UidSet.mem x inset
           then (x, next_loc())::lo
           else (x, Alloc.LVoid)::lo
-       with Failure _ -> (x, next_loc())::lo)
-      
+       with Failure _ ->
+         let _, terminator = (fst f.cfg).terminator in
+         begin match terminator with
+         | Ret (_, Some operand) -> 
+            begin match operand with
+            | Id id -> 
+               if x = id then
+                 (x, next_loc())::lo
+               else (x, Alloc.LVoid)::lo
+            | _ -> (x, Alloc.LVoid)::lo
+            end
+         | _ -> (x, Alloc.LVoid)::lo
+         end)
       (fun lo l -> (l, Alloc.LLbl (Platform.mangle l))::lo)
       (fun lo (x, i) ->
         let used = used_fn lo x in 
@@ -686,6 +696,7 @@ let trivial_liveness (f:Ll.fdecl) : liveness =
 let liveness_fn : (Ll.fdecl -> liveness) ref =
   ref trivial_liveness
 
+
 let layout_fn : (Ll.fdecl -> liveness -> layout) ref =
   ref no_reg_layout
 
@@ -697,9 +708,9 @@ let set_liveness name =
 
 let set_regalloc name = 
   layout_fn := match name with
-  | "none"   -> no_reg_layout
-  | "simple" -> simple_layout
-  | "live"   -> live_layout
+  | "none"   -> layout_name := "none"; no_reg_layout
+  | "simple" -> layout_name := "simple"; simple_layout
+  | "live"   -> layout_name := "live";live_layout
   | _ -> failwith "impossible arg"
 
 
